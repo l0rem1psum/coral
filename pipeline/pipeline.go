@@ -128,11 +128,11 @@ func (ppl *Pipeline) addProcessor(label string, procInitializer any) error {
 	return nil
 }
 
-func AddGeneric0In1OutProcessor[
-	IO processor.Generic0In1OutProcessorIO[O, Out],
+func AddGeneric0In1OutSyncProcessor[
+	IO processor.Generic0In1OutSyncProcessorIO[O, Out],
 	O, Out any,
 ](ppl *Pipeline,
-	proc processor.Generic0In1OutProcessor[Out],
+	proc processor.Generic0In1OutSyncProcessor[Out],
 	label string,
 	opts ...processor.Option,
 ) error {
@@ -140,7 +140,23 @@ func AddGeneric0In1OutProcessor[
 		processor.WithLogger(ppl.logger),
 		processor.WithLabel(label),
 	}
-	initializer := processor.InitializeGeneric0In1OutProcessor[IO](proc, append(defaultOpts, opts...)...)
+	initializer := processor.InitializeGeneric0In1OutSyncProcessor[IO](proc, append(defaultOpts, opts...)...)
+	return ppl.addProcessor(label, initializer)
+}
+
+func AddGeneric0In1OutAsyncProcessor[
+	IO processor.Generic0In1OutAsyncProcessorIO[O, Out],
+	O, Out any,
+](ppl *Pipeline,
+	proc processor.Generic0In1OutAsyncProcessor[Out],
+	label string,
+	opts ...processor.Option,
+) error {
+	defaultOpts := []processor.Option{
+		processor.WithLogger(ppl.logger),
+		processor.WithLabel(label),
+	}
+	initializer := processor.InitializeGeneric0In1OutAsyncProcessor[IO](proc, append(defaultOpts, opts...)...)
 	return ppl.addProcessor(label, initializer)
 }
 
