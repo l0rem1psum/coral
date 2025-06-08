@@ -54,6 +54,8 @@ var requestTimeout = time.Second
 type (
 	pause                 struct{}
 	resume                struct{}
+	// MultiProcessorRequest enables targeted control of specific processor instances within multi-processors.
+	// I specifies the processor index, Req contains the control message for that specific processor.
 	MultiProcessorRequest struct {
 		I   int
 		Req any

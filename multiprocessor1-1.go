@@ -8,6 +8,15 @@ import (
 	"github.com/hashicorp/go-multierror"
 )
 
+// InitializeGeneric1In1OutSyncMultiProcessor[IO, I, O, In, Out, P] creates multi-processor setup closure for parallel transformation.
+// • IO: adapter implementing Generic1In1OutSyncProcessorIO[I, O, In, Out]
+// • I: adapted input type from upstream channel
+// • O: adapted output type for downstream consumers
+// • In: raw input type from processor
+// • Out: raw output type from processor
+// • P: processor type implementing Generic1In1OutSyncProcessor[In, Out]
+// Returns closure that spawns processor goroutines and produces (*Controller, chan []O, []error).
+// Input slices are distributed 1:1 across processor instances, outputs collected into slices.
 func InitializeGeneric1In1OutSyncMultiProcessor[IO Generic1In1OutSyncProcessorIO[I, O, In, Out], I, O, In, Out any, P Generic1In1OutSyncProcessor[In, Out]](processors []P, opts ...Option) func(inputs <-chan []I) (*Controller, chan []O, []error) {
 	var config config
 	for _, opt := range opts {

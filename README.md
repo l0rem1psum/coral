@@ -98,6 +98,37 @@ Complex topologies support branching, merging, and parallel processing:
                     └──────────────┘
 ```
 
+### Controllers
+
+Controllers are the fundamental interface for managing individual processor lifecycles in Coral. Each processor is wrapped by a Controller that provides thread-safe communication with the processor's dedicated goroutine.
+
+**Key Capabilities:**
+
+- **Lifecycle Management**: Start, stop, pause, and resume processors safely at runtime
+- **Custom Control Messages**: Send application-specific commands to processors that implement the `Controllable` interface
+- **Thread-Safe Operations**: All control operations are designed for safe concurrent access
+- **Error Handling**: Comprehensive error reporting for invalid operations and processor states
+- **Timeout Protection**: Built-in safeguards prevent hanging operations on busy or unresponsive processors
+
+**Controller Interface:**
+
+```go
+controller, outputCh, err := InitializeProcessor(processor)(inputCh)
+
+// Basic lifecycle control
+controller.Start()                    // Begin processing
+controller.Stop()                     // Graceful shutdown
+controller.Pause()                    // Temporarily halt processing
+controller.Resume()                   // Resume processing
+
+// Custom control messages (if processor implements Controllable)
+controller.Control(customMessage)     // Send application-specific commands
+```
+
+**Processor Isolation:**
+
+Controllers maintain complete isolation between processors by ensuring each processor runs in its own dedicated goroutine. All control operations are processor-specific and non-interfering, enabling safe concurrent management of complex processing topologies.
+
 ### Controllers vs Pipelines
 
 While Controllers can be used directly for fine-grained processor lifecycle management, **Pipelines are the recommended approach** for building data processing workflows.
@@ -308,7 +339,16 @@ Multi-Processor:
 └─────────┘    └─────────────┘    └─────────┘
 ```
 
-Multi-processors automatically distribute work across multiple processor instances:
+### Architecture & Design
+
+Multi-processors implement **horizontal scaling infrastructure** that maintains complete interface transparency. Each multi-processor:
+
+- **Manages Multiple Goroutines**: Spawns dedicated goroutines for each processor instance while coordinating them through a central controller goroutine
+- **Uses Same Interface**: Exposes a single `Controller` interface identical to regular processors, making them drop-in replacements for performance scaling
+- **Distributes Input Batches**: Accepts `[]Input` slices and distributes each item 1:1 across processor instances for parallel execution
+- **Aggregates Outputs**: Collects and properly structures outputs from all processor instances before delivery
+
+### Parallel Execution Model
 
 ```go
 // Create multiple processor instances
@@ -318,10 +358,34 @@ processors := []*MyProcessor{
     NewMyProcessor(),
 }
 
-// Add as multi-processor for parallel execution
-pipeline.AddGeneric1In1OutSyncMultiProcessor[*MyIO](
-    ppl, processors, "parallel-stage")
+// Add as multi-processor for parallel execution - same interface as single processor
+controller, outputCh, err := InitializeGeneric1In1OutSyncMultiProcessor[*MyIO](
+    processors, options...)(inputCh)
+
+// Control entire multi-processor as single unit
+controller.Start()
+controller.Pause()  // Pauses ALL processor instances
+controller.Resume() // Resumes ALL processor instances
+controller.Stop()
 ```
+
+### Advanced Control Capabilities
+
+Multi-processors support sophisticated control message handling:
+
+- **Broadcast Control**: Default behavior sends control messages to all processor instances simultaneously
+- **Targeted Control**: Use `MultiProcessorRequest{I: index, Req: message}` to control specific processor instances
+- **Error Aggregation**: Automatically combines errors from multiple processors using structured error collection
+- **Conditional Support**: Control operations only available when all underlying processors implement `Controllable`
+
+### Performance Characteristics
+
+- **Synchronous Parallel Processing**: Processes entire input batches simultaneously across all instances
+- **Coordinated Lifecycle**: All processor instances start/stop together maintaining consistent state
+- **Type-Safe Scaling**: Compile-time verification ensures processor compatibility across all instances
+- **Resource Coordination**: Automatic cleanup and resource management across multiple goroutines
+
+Multi-processors excel for CPU-intensive operations, throughput bottlenecks, and scenarios requiring load distribution while preserving Coral's type safety and composability principles.
 
 ## Advanced Features
 
