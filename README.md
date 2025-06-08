@@ -23,194 +23,413 @@ Coral is a high-performance Go library for building concurrent data processing p
 
 - **📊 Production-Grade Reliability**: Built-in structured logging, graceful shutdown, resource cleanup, and error isolation ensure pipelines run reliably in production environments
 
-## Quick Start
+## Requirements
+
+- Go 1.21 or later
+
+## Installation
+
+```bash
+go get github.com/l0rem1psum/coral
+```
+
+## Examples
 
 See the complete working examples in the [`example/`](./example/) directory:
 
-- **[Simple Pipeline](./example/simple/)**: A basic 3-stage pipeline demonstrating core concepts including generators, transformers, sinks, and IO adapters
-
-To run the simple example:
-```bash
-cd example/simple
-go run .
-```
-
+- **[Pipeline Example](./example/simple/)**: A 3-stage pipeline using the recommended Pipeline approach with automatic lifecycle management and channel wiring
+- **[Controller Example](./example/controllers/)**: The same workflow implemented using Controllers directly for manual control and custom orchestration  
+- **[MultiProcessor Example](./example/multiprocessor/)**: Horizontal scaling with 3 parallel compute processors for enhanced throughput
 
 ## Key Concepts
 
-### Processors
+### 1. Processor
 
-Processors are the fundamental building blocks of Coral pipelines. Each processor implements a simple interface for initialization, data processing, and cleanup:
-
-```
-┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
-│   Generator     │───▶│   Transformer   │───▶│      Sink       │
-│  (0→1 output)   │    │   (1→1 data)    │    │   (1→0 input)   │
-└─────────────────┘    └─────────────────┘    └─────────────────┘
-```
-
-### IO Adapters
-
-IO Adapters handle type conversions between processors, enabling loose coupling and processor reusability:
+A **Processor** is a concurrent data processing unit that transforms data streams with a managed lifecycle. Each processor runs in its own dedicated goroutine for complete isolation.
 
 ```
-Processor A                    IO Adapter                    Processor B
-┌─────────────┐              ┌─────────────┐              ┌─────────────┐
-│             │─── TypeX ───▶│  TypeX →    │─── TypeY ───▶│             │
-│   Output    │              │  TypeY      │              │    Input    │
-│             │              │ Conversion  │              │             │
-└─────────────┘              └─────────────┘              └─────────────┘
+       ┌─────────────────┐
+Input ─│   Processor A   │─ Output
+       └─────────────────┘
 ```
 
-### Pipeline Topology
+**Core Responsibilities:**
+- **Data Transformation**: Process input data according to business logic and produce output
+- **Lifecycle Management**: Handle initialization, processing loop, and cleanup phases
+- **Resource Isolation**: Run in dedicated goroutine to prevent interference with other processors
+- **Error Handling**: Manage processing errors and maintain system stability
 
-Pipelines are defined as Directed Acyclic Graphs (DAGs) where vertices represent processors and edges represent data channels:
+### 2. MultiProcessor
 
-```
-       ┌─────────────┐
-       │  Generator  │
-       └─────┬───────┘
-             │ numbers
-             ▼
-       ┌─────────────┐
-       │ Transformer │
-       └─────┬───────┘
-             │ results
-             ▼
-       ┌─────────────┐
-       │    Sink     │
-       └─────────────┘
-```
-
-Complex topologies support branching, merging, and parallel processing:
+A **MultiProcessor** enables horizontal scaling by running multiple processor instances in parallel. Input slices are distributed 1:1 across instances for concurrent processing.
 
 ```
-                    ┌──────────────┐
-              ┌────▶│ Processor B  │────┐
-              │     └──────────────┘    │
-              │                         ▼
-┌─────────────┐                   ┌──────────────┐
-│ Processor A │                   │ Processor D  │
-└─────────────┘                   └──────────────┘
-              │                         ▲
-              │     ┌──────────────┐    │
-              └────▶│ Processor C  │────┘
-                    └──────────────┘
+Single Processor:
+       ┌─────────────────┐
+Input ─│   Processor 1   │─ Output
+       └─────────────────┘
+
+MultiProcessor:
+        ┌─────────────────┐
+Input ──│   Processor 1   │── Output
+Slice   ├─────────────────┤   Slice
+[A,B,C] │   Processor 2   │   [A',B',C']
+        ├─────────────────┤
+        │   Processor 3   │
+        └─────────────────┘
 ```
 
-### Controllers
+**Core Responsibilities:**
+- **Parallel Execution**: Coordinate multiple processor instances for increased throughput
+- **Load Distribution**: Distribute input slices evenly across processor instances
+- **Output Aggregation**: Collect and structure outputs from all processor instances
+- **Unified Control**: Present single Controller interface for managing all instances
 
-Controllers are the fundamental interface for managing individual processor lifecycles in Coral. Each processor is wrapped by a Controller that provides thread-safe communication with the processor's dedicated goroutine.
+### 3. Controller
 
-**Key Capabilities:**
+A **Controller** provides thread-safe lifecycle management for processor goroutines. Each processor has exactly one Controller that handles start/stop operations and custom control messages.
 
-- **Lifecycle Management**: Start, stop, pause, and resume processors safely at runtime
-- **Custom Control Messages**: Send application-specific commands to processors that implement the `Controllable` interface
-- **Thread-Safe Operations**: All control operations are designed for safe concurrent access
-- **Error Handling**: Comprehensive error reporting for invalid operations and processor states
-- **Timeout Protection**: Built-in safeguards prevent hanging operations on busy or unresponsive processors
+```
+┌─────────────┐                    ┌─────────────┐
+│             │───── Commands ────▶│             │
+│ Controller  │                    │ Processor   │
+│             │◀──── Responses ────│ Goroutine   │
+└─────────────┘                    └─────────────┘
+```
 
-**Controller Interface:**
+**Core Responsibilities:**
+- **Lifecycle Control**: Manage processor startup, shutdown, pause, and resume operations
+- **Thread-Safe Communication**: Provide safe interface for controlling processor goroutines
+- **State Management**: Track processor state and prevent invalid operations
+- **Custom Control**: Enable application-specific runtime control and configuration changes
+
+### 4. IO Adapter
+
+An **IO Adapter** handles type conversions and resource management for a specific processor, enabling loose coupling and reusability. Each processor is wrapped by its own IO adapter that converts between channel types and the processor's business logic types.
+
+```
+         ┌──────────────────────────────────┐
+         │         IO Adapter               │
+         │  ┌─────────────────────────┐     │
+Channel  │  │     Processor A         │     │ Channel
+Type I ──│─▶│ (Raw Types: In→Out)     │─▶───│── Type O
+         │  └─────────────────────────┘     │
+         │ AsInput(I)→In  Out→FromOutput(O) │
+         └──────────────────────────────────┘
+```
+
+**Core Responsibilities:**
+- **Type Conversion**: Transform channel types to/from processor's raw business logic types
+- **Decoupling**: Separate processor business logic from pipeline-specific data formats  
+- **Resource Management**: Handle acquisition and cleanup of resources via `ReleaseInput`/`ReleaseOutput`
+- **Reusability**: Enable processors to work with different data types across various pipelines
+
+### 5. Pipeline
+
+A **Pipeline** orchestrates complex data processing workflows by connecting multiple processors in a Directed Acyclic Graph (DAG). It handles automatic channel wiring, topological execution order, and type safety.
+
+Simple Pipeline:
+```
+┌─────────────┐
+│ Processor A │
+└─────┬───────┘
+      │
+      ▼
+┌─────────────┐
+│ Processor B │
+└─────┬───────┘
+      │
+      ▼
+┌─────────────┐
+│ Processor C │
+└─────────────┘
+```
+
+Complex Pipeline:
+```
+                ┌─────────────┐
+          ┌────▶│ Processor B │────┐
+          │     └─────────────┘    │
+          │                        ▼
+┌─────────────┐              ┌─────────────┐
+│ Processor A │              │ Processor E │
+└─────┬───────┘              └─────┬───────┘
+      │                            │
+      │     ┌─────────────┐        │
+      └────▶│ Processor C │────────┘
+            └─────┬───────┘
+                  │
+                  ▼
+            ┌─────────────┐
+            │ Processor D │
+            └─────────────┘
+```
+
+**Core Responsibilities:**
+- **DAG Orchestration**: Define and validate processor connections in directed acyclic graphs
+- **Automatic Wiring**: Connect processor outputs to downstream inputs via typed channels
+- **Execution Ordering**: Start and stop processors in topologically correct dependency order
+- **Type Safety**: Ensure compile-time compatibility between connected processor interfaces
+- **Centralized Management**: Coordinate initialization, startup, and shutdown across all processors
+
+## Processor Types
+
+Coral provides different processor patterns based on input/output cardinality (M→N pattern):
+
+| Type | Pattern | Interface | Sync/Async | Description | Use Cases |
+|------|---------|-----------|------------|-------------|-----------|
+| **Generator** | 0→1 | [`Generic0In1OutSyncProcessor`](./processor0-1.go) | Sync | Creates data from external sources | File readers, API clients, sensor data |
+| **Generator** | 0→1 | [`Generic0In1OutAsyncProcessor`](./processor0-1.go) | Async | Creates data with decoupled output | Event streams, async data sources |
+| **Transformer** | 1→1 | [`Generic1In1OutSyncProcessor`](./processor1-1.go) | Sync | Transforms data with 1:1 mapping | Data validation, format conversion |
+| **Transformer** | 1→1 | [`Generic1In1OutAsyncProcessor`](./processor1-1.go) | Async | Transforms with decoupled input/output | Complex processing pipelines |
+| **Sink** | 1→0 | [`Generic1In0OutSyncProcessor`](./processor1-0.go) | Sync | Consumes data and performs side effects | Database writers, file outputs |
+| **Broadcaster** | 1→N | [`Generic1InNOutSyncProcessor`](./processor1-N.go) | Sync | Distributes single input to multiple outputs | Data routing, replication |
+| **2-Input Aggregator** | 2→1 | [`Generic2In1OutAsyncProcessor`](./processor2-1.go) | Async | Combines two input streams | Data joining, correlation |
+| **N-Input Aggregator** | N→1 | [`GenericNIn1OutAsyncProcessor`](./processorN-1.go) | Async | Combines multiple input streams | Stream merging, fan-in operations |
+| **N-Input Sink** | N→0 | [`GenericNIn0OutAsyncProcessor`](./processorN-0.go) | Async | Consumes from multiple input streams | Multi-stream logging, aggregated outputs |
+| **Multi-I/O** | M→N | [`GenericMInNOutSyncProcessor`](./processorM-N.go) | Sync | Complex processing with multiple inputs/outputs | Complex transformations, routing |
+
+### MultiProcessor Variants
+
+| Type | Pattern | Function | Description | Use Cases |
+|------|---------|-----------|-------------|-----------|
+| **Multi-Transformer** | 1→1 | [`InitializeGeneric1In1OutSyncMultiProcessor`](./multiprocessor1-1.go) | Parallel 1:1 processing across multiple instances | High-throughput data transformation |
+| **Multi-Sink** | 1→0 | [`InitializeGeneric1In0OutSyncMultiProcessor`](./multiprocessor1-0.go) | Parallel sink processing across multiple instances | High-throughput data consumption |
+| **Multi-Broadcaster** | 1→N | [`InitializeGeneric1InNOutSyncMultiProcessor`](./multiprocessor1-N.go) | Parallel broadcasting across multiple instances | High-throughput data distribution |
+
+### Processing Modes
+
+Coral supports both **synchronous** and **asynchronous** processing modes:
+
+- **Synchronous**: `Process(input)` blocks until output is ready - simpler for 1:1 transformations
+- **Asynchronous**: Input processing and output generation are decoupled via self-managed channels - better for complex timing requirements
+
+```
+Synchronous Flow:
+Input → Process() → Output (blocking)
+
+Asynchronous Flow:
+Input → Process() → Internal Queue
+              ↓
+         Output() ← Channel (non-blocking)
+```
+
+## Pipeline vs Controller Usage Patterns
+
+Coral offers two approaches for building data processing workflows: **Pipelines** (recommended) and **Controllers** (manual).
+
+### Pipeline Approach (Recommended)
+
+Pipelines provide automatic lifecycle management and channel wiring for complex data flows:
 
 ```go
-controller, outputCh, err := InitializeProcessor(processor)(inputCh)
+// Declarative topology definition
+vertices := []pipeline.ProcessorVertex{
+    {Label: "generator", Outputs: []pipeline.EdgeLabels{{"random_numbers"}}},
+    {Label: "computer", Inputs: []pipeline.EdgeLabels{{"random_numbers"}}, 
+     Outputs: []pipeline.EdgeLabels{{"computed_results"}}},
+    {Label: "printer", Inputs: []pipeline.EdgeLabels{{"computed_results"}}},
+}
 
-// Basic lifecycle control
-controller.Start()                    // Begin processing
-controller.Stop()                     // Graceful shutdown
-controller.Pause()                    // Temporarily halt processing
-controller.Resume()                   // Resume processing
+// Automatic management
+ppl, _ := pipeline.NewPipeline(vertices, logger)
+pipeline.AddGeneric0In1OutSyncProcessor[*GeneratorToComputerIO](ppl, generator, "generator")
+pipeline.AddGeneric1In1OutSyncProcessor[*ComputerToPrinterIO](ppl, computer, "computer")  
+pipeline.AddGeneric1In0OutSyncProcessor[*PrintProcessorIO](ppl, printer, "printer")
 
-// Custom control messages (if processor implements Controllable)
-controller.Control(customMessage)     // Send application-specific commands
-```
-
-**Processor Isolation:**
-
-Controllers maintain complete isolation between processors by ensuring each processor runs in its own dedicated goroutine. All control operations are processor-specific and non-interfering, enabling safe concurrent management of complex processing topologies.
-
-### Controllers vs Pipelines
-
-While Controllers can be used directly for fine-grained processor lifecycle management, **Pipelines are the recommended approach** for building data processing workflows.
-
-#### Direct Controller Usage
-
-Each processor returns a Controller that provides thread-safe lifecycle management:
-
-```go
-controller, outputCh, err := InitializeProcessor(processor)(inputCh)
-
-// Lifecycle control
-controller.Start()     // Begin processing
-controller.Pause()     // Temporarily halt processing
-controller.Resume()    // Resume processing
-controller.Stop()      // Graceful shutdown
-controller.Control(msg) // Send custom control message
-```
-
-#### Why Use Pipelines Instead
-
-**Pipelines provide significant advantages over using Controllers directly:**
-
-1. **Automatic Lifecycle Management**: Pipelines handle the start/stop sequence of all processors in topological order, ensuring proper initialization and shutdown without manual coordination.
-
-2. **Reduced Boilerplate**: No need to manually wire channels between processors or handle complex initialization sequences - the pipeline handles all channel creation and connection.
-
-3. **Error Handling**: Centralized error handling during pipeline initialization and startup, with automatic cleanup on failure.
-
-4. **Type Safety**: Compile-time verification that processor input/output types match across the entire pipeline topology.
-
-5. **Simplified Code**: Compare direct controller usage vs pipeline:
-
-```go
-// Direct Controllers (manual, error-prone)
-gen := NewGenerator()
-proc := NewProcessor()
-sink := NewSink()
-
-genController, genOut, _ := InitializeGenerator(gen)()
-procController, procOut, _ := InitializeProcessor(proc)(genOut)
-sinkController, _, _ := InitializeSink(sink)(procOut)
-
-// Manual start sequence
-genController.Start()
-procController.Start()
-sinkController.Start()
-
-// Manual stop sequence (reverse order)
-sinkController.Stop()
-procController.Stop()
-genController.Stop()
-
-// vs Pipeline (automatic, safe)
-ppl.AddGenerator(gen, "gen")
-ppl.AddProcessor(proc, "proc") 
-ppl.AddSink(sink, "sink")
 ppl.Initialize()
 ppl.Start()
-defer ppl.Stop() // Handles proper shutdown order
+defer ppl.Stop()
 ```
 
-**Use Controllers directly only when you need:**
-- Custom processor orchestration outside of DAG topology
-- Fine-grained control over individual processor lifecycle
-- Dynamic processor management at runtime
+### Controller Approach (Manual)
 
-### Goroutine-Per-Processor Architecture
-
-**One of Coral's key design advantages is running each processor in its own dedicated goroutine.** This architecture provides several critical benefits:
-
-#### C Library Integration & Thread-Local Storage
-
-Many external libraries, especially C libraries via CGO, rely on thread-local storage and require that initialization, processing, and cleanup all happen on the same OS thread. Coral's goroutine-per-processor design makes this seamless:
+Controllers provide fine-grained control for custom orchestration scenarios:
 
 ```go
+// Manual initialization and channel wiring
+genController, genOutputCh, _ := processor.InitializeGeneric0In1OutSyncProcessor[*GeneratorToComputerIO](generator)()
+compController, compOutputCh, _ := processor.InitializeGeneric1In1OutSyncProcessor[*ComputerToPrinterIO](computer)(genOutputCh)
+printController, _ := processor.InitializeGeneric1In0OutSyncProcessor[*PrintProcessorIO](printer)(compOutputCh)
+
+// Manual lifecycle management (order matters)
+genController.Start()
+compController.Start() 
+printController.Start()
+```
+
+### When to Use Each Approach
+
+| Use Pipeline When | Use Controllers When |
+|-------------------|---------------------|
+| Building standard DAG workflows | Custom orchestration patterns |
+| Want automatic lifecycle management | Need fine-grained control |
+| Prefer declarative configuration | Require dynamic processor management |
+| Need centralized error handling | Have non-standard startup sequences |
+
+**See working examples:** [`example/simple/`](./example/simple/) (Pipeline) vs [`example/controllers/`](./example/controllers/) (Controllers)
+
+## Advanced Usage
+
+### Custom Control Messages
+
+Implement dynamic runtime configuration by sending custom control messages to processors.
+
+#### Processor Implementation
+
+```go
+type ConfigurableProcessor struct {
+    rateLimit int
+    logger    *slog.Logger
+}
+
+// Implement Controllable interface
+func (p *ConfigurableProcessor) OnControl(msg any) error {
+    switch ctrl := msg.(type) {
+    case *RateLimitUpdate:
+        p.rateLimit = ctrl.NewLimit
+        p.logger.Info("Rate limit updated", "new_limit", ctrl.NewLimit)
+        return nil
+    case *LogLevelUpdate:
+        // Update log level dynamically
+        return p.updateLogLevel(ctrl.Level)
+    default:
+        return processor.ErrControlNotSupported
+    }
+}
+```
+
+#### Sending Control Messages
+
+```go
+// Define control message types
+type RateLimitUpdate struct {
+    NewLimit int
+}
+
+// Send control messages at runtime
+controller.Control(&RateLimitUpdate{NewLimit: 1000})
+controller.Pause()  // Built-in control
+controller.Resume() // Built-in control
+```
+
+### Multi-Processor Scaling
+
+Multi-processors enable horizontal scaling by running multiple processor instances in parallel for enhanced throughput.
+
+#### Basic Multi-Processor Setup
+
+```go
+// Create multiple processor instances
+computeProcessors := []*ComputeNumberProcessor{
+    NewComputeNumberProcessor(logger, 1),
+    NewComputeNumberProcessor(logger, 2), 
+    NewComputeNumberProcessor(logger, 3),
+}
+
+// Add as multi-processor - same interface as single processor
+err = pipeline.AddGeneric1In1OutSyncMultiProcessor[*MultiProcessorComputeIO](
+    ppl,
+    computeProcessors,
+    "multi_computer",
+)
+```
+
+#### Advanced Control Features
+
+Multi-processors support sophisticated control operations:
+
+```go
+// Broadcast control to all instances
+controller.Control(configUpdate)
+
+// Target specific processor instance
+controller.Control(&processor.MultiProcessorRequest{
+    I:   1,                    // Target processor instance 1
+    Req: customControlMessage, // Send specific control message
+})
+```
+
+**See working example:** [`example/multiprocessor/`](./example/multiprocessor/)
+
+### Backpressure Handling
+
+Configure how processors handle output channel congestion to prevent memory issues and maintain system stability.
+
+#### Configuration Options
+
+```go
+// Block until output channel has space (default)
+processor.InitializeGeneric1In1OutSyncProcessor[*MyIO](
+    processor,
+    processor.BlockOnOutput(), // Will block processing if output is full
+)
+
+// Drop messages when output channel is full
+processor.InitializeGeneric1In1OutSyncProcessor[*MyIO](
+    processor,
+    // No BlockOnOutput() - will drop oldest or current messages
+)
+```
+
+#### Backpressure Strategies
+
+- **Blocking**: Processor waits until downstream consumer reads from output channel
+- **Dropping**: When output buffer is full, either oldest or current message is dropped
+- **Logging**: Dropped messages are logged for monitoring and debugging
+
+### Resource Management
+
+IO Adapters provide hooks for proper resource lifecycle management, preventing memory leaks and ensuring cleanup.
+
+#### Resource Cleanup Implementation
+
+```go
+type FileProcessorIO struct {
+    filePool *sync.Pool
+}
+
+func (io *FileProcessorIO) AsInput(filePath string) *os.File {
+    file, _ := os.Open(filePath)
+    return file
+}
+
+func (io *FileProcessorIO) FromOutput(file *os.File, result *ProcessedData) *OutputData {
+    return &OutputData{
+        Content: result.Content,
+        Source:  file.Name(),
+    }
+}
+
+// Critical: Release resources to prevent leaks
+func (io *FileProcessorIO) ReleaseInput(file *os.File) {
+    if file != nil {
+        file.Close()
+    }
+}
+
+func (io *FileProcessorIO) ReleaseOutput(output *OutputData) {
+    // Return to pool, close connections, etc.
+    io.filePool.Put(output.buffer)
+}
+```
+
+### Integration with C Libraries
+
+Coral's goroutine-per-processor architecture enables safe integration with C libraries that require thread-local storage.
+
+#### Thread-Local Storage Pattern
+
+```go
+import "C"
+import "runtime"
+
 type CLibraryProcessor struct {
     initialized bool
 }
 
 func (p *CLibraryProcessor) Init() error {
-    // Lock this goroutine to the current OS thread
+    // Lock this goroutine to current OS thread
     runtime.LockOSThread()
     
     // Initialize C library - will use thread-local storage
@@ -220,241 +439,26 @@ func (p *CLibraryProcessor) Init() error {
 }
 
 func (p *CLibraryProcessor) Process(input *Data) (*Result, error) {
-    // This guaranteed to run on the same OS thread as Init()
-    // C library can safely access its thread-local state
-    return C.process_data(input), nil
+    // Guaranteed to run on same OS thread as Init()
+    // C library can safely access thread-local state
+    result := C.process_data((*C.char)(input.buffer))
+    return &Result{Data: C.GoString(result)}, nil
 }
 
 func (p *CLibraryProcessor) Close() error {
-    // Cleanup also happens on the same OS thread
+    // Cleanup on same OS thread
     C.cleanup_library()
+    runtime.UnlockOSThread()
     return nil
 }
 ```
 
-#### Why This Matters
+#### Benefits for C Integration
 
-- **Thread Safety**: Each processor runs in isolation, eliminating shared state issues
-- **C Library Compatibility**: Perfect for integrating legacy C/C++ libraries that weren't designed for Go's goroutine model  
-- **Predictable Resource Management**: Thread-local resources are properly managed within processor lifecycle
-- **Blocking Operations**: Processors can safely perform blocking I/O or call blocking C functions without affecting other processors
-
-#### Processor Initialization and Goroutine Management
-
-Coral's processor initialization follows a consistent pattern across all processor types through `InitializeXXXProcessor` functions. These functions implement a **factory closure pattern** that separates processor setup from execution:
-
-```go
-// Step 1: Create the setup closure
-setupFn := InitializeGeneric1In1OutSyncProcessor[*MyIO](processor, options...)
-
-// Step 2: Call the closure to spawn processor goroutine  
-controller, outputCh, err := setupFn(inputCh)
-```
-
-**How the Pattern Works:**
-
-1. **Setup Phase**: `InitializeXXXProcessor` configures logging, options, and returns a closure
-2. **Execution Phase**: The closure spawns a dedicated goroutine for the processor and returns:
-   - `*Controller`: Interface for sending control messages (start/stop/pause/resume) to the processor goroutine
-   - `chan O`: Output channel for receiving processed data (if processor produces output)
-   - `error`: Indicates processor initialization failure
-
-**Processor Lifecycle in Goroutine:**
-
-```
-Goroutine Spawned → processor.Init() → Wait for Start Signal → Processing Loop → processor.Close()
-                                    ↑                                      ↓
-                              Controller.Start()                    Controller.Stop()
-```
-
-**Consistent Signatures Across Processor Types:**
-
-- **Generators** (`0→1`): `func() (*Controller, chan O, error)` - No input required
-- **Transformers** (`1→1`): `func(<-chan I) (*Controller, chan O, error)` - Input and output channels  
-- **Sinks** (`1→0`): `func(<-chan I) (*Controller, error)` - Input channel only
-- **Aggregators** (`N→1`): `func([]<-chan I) (*Controller, chan O, error)` - Multiple inputs, one output
-
-This design ensures that:
-- Each processor runs in complete isolation within its own goroutine
-- Controller provides thread-safe communication with the processor goroutine
-- Initialization errors are caught before goroutine execution begins
-- Resource cleanup happens automatically when the goroutine terminates
-
-## Processor Types
-
-Coral provides several processor patterns to handle different data flow scenarios:
-
-### **Generator Processors** ([`Generic0In1OutSyncProcessor`](./processor0-1.go#L8-L12))
-Create data from external sources without input dependencies.
-
-**Interface**: See [`processor0-1.go`](./processor0-1.go) for the complete interface definition.
-
-**Use cases**: File readers, API clients, sensor data collectors, test data generators
-
-### **Transformer Processors** ([`Generic1In1OutSyncProcessor`](./processor1-1.go#L8-L12))
-Transform data in a 1:1 mapping relationship.
-
-**Interface**: See [`processor1-1.go`](./processor1-1.go) for the complete interface definition.
-
-**Use cases**: Data validation, format conversion, business logic application, enrichment
-
-### **Aggregator Processors** ([`GenericNIn1OutAsyncProcessor`](./processorN-1.go#L8-L13))
-Combine multiple input streams into a single output stream.
-
-**Interface**: See [`processorN-1.go`](./processorN-1.go) for the complete interface definition.
-
-**Use cases**: Data joining, stream merging, fan-in operations, correlation
-
-### **Broadcaster Processors** ([`Generic1InNOutSyncProcessor`](./processor1-N.go#L8-L12))
-Distribute single inputs to multiple output streams.
-
-**Interface**: See [`processor1-N.go`](./processor1-N.go) for the complete interface definition.
-
-**Use cases**: Data routing, replication, fan-out operations, parallel processing
-
-### **Sink Processors** ([`Generic1In0OutSyncProcessor`](./processor1-0.go#L8-L12))
-Consume data and perform side effects without producing outputs.
-
-**Interface**: See [`processor1-0.go`](./processor1-0.go) for the complete interface definition.
-
-**Use cases**: Database writers, file outputs, logging, notifications, metrics collection
-
-## Multi-Processor Scaling
-
-Coral supports horizontal scaling within pipeline stages using multi-processors:
-
-```
-Single Processor:
-┌─────────┐    ┌─────────────┐    ┌─────────┐
-│ Input   │───▶│ Processor   │───▶│ Output  │
-└─────────┘    └─────────────┘    └─────────┘
-
-Multi-Processor:
-┌─────────┐    ┌─────────────┐    ┌─────────┐
-│         │───▶│ Processor 1 │───▶│         │
-│ Input   │    ├─────────────┤    │ Output  │
-│ Dist.   │───▶│ Processor 2 │───▶│ Agg.    │
-│         │    ├─────────────┤    │         │
-│         │───▶│ Processor 3 │───▶│         │
-└─────────┘    └─────────────┘    └─────────┘
-```
-
-### Architecture & Design
-
-Multi-processors implement **horizontal scaling infrastructure** that maintains complete interface transparency. Each multi-processor:
-
-- **Manages Multiple Goroutines**: Spawns dedicated goroutines for each processor instance while coordinating them through a central controller goroutine
-- **Uses Same Interface**: Exposes a single `Controller` interface identical to regular processors, making them drop-in replacements for performance scaling
-- **Distributes Input Batches**: Accepts `[]Input` slices and distributes each item 1:1 across processor instances for parallel execution
-- **Aggregates Outputs**: Collects and properly structures outputs from all processor instances before delivery
-
-### Parallel Execution Model
-
-```go
-// Create multiple processor instances
-processors := []*MyProcessor{
-    NewMyProcessor(),
-    NewMyProcessor(), 
-    NewMyProcessor(),
-}
-
-// Add as multi-processor for parallel execution - same interface as single processor
-controller, outputCh, err := InitializeGeneric1In1OutSyncMultiProcessor[*MyIO](
-    processors, options...)(inputCh)
-
-// Control entire multi-processor as single unit
-controller.Start()
-controller.Pause()  // Pauses ALL processor instances
-controller.Resume() // Resumes ALL processor instances
-controller.Stop()
-```
-
-### Advanced Control Capabilities
-
-Multi-processors support sophisticated control message handling:
-
-- **Broadcast Control**: Default behavior sends control messages to all processor instances simultaneously
-- **Targeted Control**: Use `MultiProcessorRequest{I: index, Req: message}` to control specific processor instances
-- **Error Aggregation**: Automatically combines errors from multiple processors using structured error collection
-- **Conditional Support**: Control operations only available when all underlying processors implement `Controllable`
-
-### Performance Characteristics
-
-- **Synchronous Parallel Processing**: Processes entire input batches simultaneously across all instances
-- **Coordinated Lifecycle**: All processor instances start/stop together maintaining consistent state
-- **Type-Safe Scaling**: Compile-time verification ensures processor compatibility across all instances
-- **Resource Coordination**: Automatic cleanup and resource management across multiple goroutines
-
-Multi-processors excel for CPU-intensive operations, throughput bottlenecks, and scenarios requiring load distribution while preserving Coral's type safety and composability principles.
-
-## Advanced Features
-
-### **Backpressure Handling**
-Configure how processors handle output channel congestion:
-
-```go
-processor.Option{
-    BlockOnOutput: true,  // Block until output is consumed
-    // OR
-    BlockOnOutput: false, // Drop messages when output buffer is full
-}
-```
-
-### **Custom Control Messages**
-Send application-specific control messages to running processors:
-
-```go
-type CustomControl struct {
-    ConfigUpdate map[string]interface{}
-}
-
-// Send control message
-controller.Control(&CustomControl{
-    ConfigUpdate: map[string]interface{}{
-        "rate_limit": 1000,
-    },
-})
-
-// Handle in processor
-func (p *MyProcessor) OnControl(msg interface{}) error {
-    if ctrl, ok := msg.(*CustomControl); ok {
-        // Handle configuration update
-        return p.updateConfig(ctrl.ConfigUpdate)
-    }
-    return nil
-}
-```
-
-### **Resource Management**
-IO Adapters provide hooks for resource acquisition and cleanup:
-
-```go
-func (io *MyIO) ReleaseInput(input *InputType) {
-    // Clean up input resources (close files, return to pools, etc.)
-}
-
-func (io *MyIO) ReleaseOutput(output *OutputType) {
-    // Clean up output resources
-}
-```
-
-## Examples
-
-Explore complete examples in the [`example/`](./example/) directory:
-
-- **[Simple Pipeline](./example/simple/)**: Basic 3-stage pipeline demonstrating core concepts
-- More examples coming soon!
-
-## Installation
-
-```bash
-go get github.com/l0rem1psum/coral
-```
-
-## Requirements
-
-- Go 1.21 or later
-- No external dependencies beyond the Go standard library
+- **Thread Consistency**: Initialization, processing, and cleanup on same OS thread
+- **Thread-Local Storage**: Safe access to C library thread-local variables  
+- **Blocking Operations**: C library blocking calls don't affect other processors
+- **Resource Isolation**: Each processor has independent C library state
 
 ## Contributing
 
@@ -463,11 +467,3 @@ Contributions are welcome! Please feel free to submit issues, feature requests, 
 ## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## Related Projects
-
-Coral draws inspiration from functional programming and stream processing frameworks while focusing on Go's strengths in concurrent programming and type safety.
-
----
-
-**Keywords**: Go pipeline, data processing, concurrent programming, type-safe, stream processing, ETL, data flow, goroutines, channels, functional programming, DAG processing
