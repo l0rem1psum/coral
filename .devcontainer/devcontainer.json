@@ -1,0 +1,40 @@
+// For format details, see https://aka.ms/devcontainer.json. For config options, see the README at:
+// https://github.com/microsoft/vscode-dev-containers/tree/v0.241.1/containers/go
+{
+	"name": "coral",
+	"build": {
+		"dockerfile": "Dockerfile",
+		"args": {
+		}
+	},
+
+	// Configure tool-specific properties.
+	"customizations": {
+		// Configure properties specific to VS Code.
+		"vscode": {
+			// Set *default* container specific settings.json values on container create.
+			"settings": { 
+				"go.toolsManagement.checkForUpdates": "local",
+				"go.toolsManagement.autoUpdate": true,
+				"go.useLanguageServer": true,
+				"go.gopath": "/go",
+				"gopls": {
+				  "ui.semanticTokens": true,
+				  "formatting.gofumpt": true
+				}
+			},
+			
+			// Add the IDs of extensions you want installed when the container is created.
+			"extensions": [
+				"golang.Go",
+			]
+		}
+	},
+
+	// Comment out to connect as root instead. More info: https://aka.ms/vscode-remote/containers/non-root.
+	// "remoteUser": "vscode",
+	
+	"features": {
+		"ghcr.io/devcontainers/features/common-utils": {},
+	},
+}
