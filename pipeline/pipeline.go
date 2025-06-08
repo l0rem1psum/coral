@@ -295,6 +295,23 @@ func AddGenericNIn1OutAsyncProcessor[
 	return ppl.addProcessor(label, initializer)
 }
 
+func AddGeneric1In0OutSyncProcessor[
+	IO processor.Generic1In0OutSyncProcessorIO[I, In],
+	I, In any,
+](
+	ppl *Pipeline,
+	proc processor.Generic1In0OutSyncProcessor[In],
+	label string,
+	opts ...processor.Option,
+) error {
+	defaultOpts := []processor.Option{
+		processor.WithLogger(ppl.logger),
+		processor.WithLabel(label),
+	}
+	initializer := processor.InitializeGeneric1In0OutSyncProcessor[IO](proc, append(defaultOpts, opts...)...)
+	return ppl.addProcessor(label, initializer)
+}
+
 func (ppl *Pipeline) Initialize() error {
 	topSortedVertices, err := graph.TopologicalSort(ppl.graph)
 	if err != nil {
