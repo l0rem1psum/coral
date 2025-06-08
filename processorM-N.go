@@ -8,13 +8,24 @@ import (
 	"github.com/samber/lo"
 )
 
+// GenericMInNOutSyncProcessor[In, Out] processes batched inputs and distributes to multiple outputs.
+// • Input: []In (slice of raw data type from batched upstream sources)
+// • Output: []Out (slice of raw data type produced by processor)
+// • Synchronous: Process([]In) blocks until all outputs ready
 type GenericMInNOutSyncProcessor[In, Out any] interface {
+	// NumOutputs returns the number of output channels this processor will use.
+	// Must remain constant throughout processor lifetime for proper channel allocation.
 	NumOutputs() int
 	Init() error
 	Process([]In) ([]Out, error)
 	Close() error
 }
 
+// GenericMInNOutSyncProcessorIO[I, O, In, Out] adapts batched input/distributed output processor.
+// • I: adapted input type from upstream channel
+// • O: adapted output type for downstream consumers
+// • In: raw input type from processor
+// • Out: raw output type from processor
 type GenericMInNOutSyncProcessorIO[I, O, In, Out any] interface {
 	AsInput(I) In
 	FromOutput(Out) O
@@ -23,6 +34,13 @@ type GenericMInNOutSyncProcessorIO[I, O, In, Out any] interface {
 	ReleaseOutput(O)
 }
 
+// InitializeGenericMInNOutSyncProcessor[IO, I, O, In, Out] creates processor setup closure.
+// • IO: adapter implementing GenericMInNOutSyncProcessorIO[I, O, In, Out]
+// • I: adapted input type from upstream channel
+// • O: adapted output type for downstream consumers
+// • In: raw input type from processor
+// • Out: raw output type from processor
+// Returns closure that spawns processor goroutine and produces (*Controller, []chan O, error).
 func InitializeGenericMInNOutSyncProcessor[IO GenericMInNOutSyncProcessorIO[I, O, In, Out], I, O, In, Out any](processor GenericMInNOutSyncProcessor[In, Out], opts ...Option) func(<-chan []I) (*Controller, []chan O, error) {
 	var config config
 	for _, opt := range opts {

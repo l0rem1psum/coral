@@ -11,17 +11,17 @@ Coral is a high-performance Go library for building concurrent data processing p
 
 - **🔒 Compile-Time Type Safety**: Generic type system ensures incompatible processors cannot be connected, eliminating entire classes of runtime errors common in data processing systems
 
-- **⚡ Zero-Configuration Concurrency**: Write sequential processing logic while Coral handles goroutines, channels, synchronization, and backpressure automatically
-
-- **🔧 Composable Architecture**: Build complex data flows from simple, reusable processor components. Each processor focuses on a single responsibility and can be tested in isolation
-
-- **📊 Production-Grade Reliability**: Built-in structured logging, graceful shutdown, resource cleanup, and error isolation ensure pipelines run reliably in production environments
-
-- **🎛️ Runtime Controllability**: Pause, resume, or send custom control messages to running processors without stopping the entire pipeline
+- **🧵 Goroutine-Per-Processor**: Each processor runs in its own dedicated goroutine, enabling safe integration with C libraries, thread-local storage, and blocking operations without affecting other processors
 
 - **📈 Horizontal Scaling**: Multi-processor support for distributing work across multiple processor instances within pipeline stages
 
-- **🧵 Goroutine-Per-Processor**: Each processor runs in its own dedicated goroutine, enabling safe integration with C libraries, thread-local storage, and blocking operations without affecting other processors
+- **🎛️ Runtime Controllability**: Pause, resume, or send custom control messages to running processors without stopping the entire pipeline
+
+- **🔧 Composable Architecture**: Build complex data flows from simple, reusable processor components. Each processor focuses on a single responsibility and can be tested in isolation
+
+- **⚡ Zero-Configuration Concurrency**: Write sequential processing logic while Coral handles goroutines, channels, synchronization, and backpressure automatically
+
+- **📊 Production-Grade Reliability**: Built-in structured logging, graceful shutdown, resource cleanup, and error isolation ensure pipelines run reliably in production environments
 
 ## Quick Start
 
@@ -207,6 +207,47 @@ func (p *CLibraryProcessor) Close() error {
 - **C Library Compatibility**: Perfect for integrating legacy C/C++ libraries that weren't designed for Go's goroutine model  
 - **Predictable Resource Management**: Thread-local resources are properly managed within processor lifecycle
 - **Blocking Operations**: Processors can safely perform blocking I/O or call blocking C functions without affecting other processors
+
+#### Processor Initialization and Goroutine Management
+
+Coral's processor initialization follows a consistent pattern across all processor types through `InitializeXXXProcessor` functions. These functions implement a **factory closure pattern** that separates processor setup from execution:
+
+```go
+// Step 1: Create the setup closure
+setupFn := InitializeGeneric1In1OutSyncProcessor[*MyIO](processor, options...)
+
+// Step 2: Call the closure to spawn processor goroutine  
+controller, outputCh, err := setupFn(inputCh)
+```
+
+**How the Pattern Works:**
+
+1. **Setup Phase**: `InitializeXXXProcessor` configures logging, options, and returns a closure
+2. **Execution Phase**: The closure spawns a dedicated goroutine for the processor and returns:
+   - `*Controller`: Interface for sending control messages (start/stop/pause/resume) to the processor goroutine
+   - `chan O`: Output channel for receiving processed data (if processor produces output)
+   - `error`: Indicates processor initialization failure
+
+**Processor Lifecycle in Goroutine:**
+
+```
+Goroutine Spawned → processor.Init() → Wait for Start Signal → Processing Loop → processor.Close()
+                                    ↑                                      ↓
+                              Controller.Start()                    Controller.Stop()
+```
+
+**Consistent Signatures Across Processor Types:**
+
+- **Generators** (`0→1`): `func() (*Controller, chan O, error)` - No input required
+- **Transformers** (`1→1`): `func(<-chan I) (*Controller, chan O, error)` - Input and output channels  
+- **Sinks** (`1→0`): `func(<-chan I) (*Controller, error)` - Input channel only
+- **Aggregators** (`N→1`): `func([]<-chan I) (*Controller, chan O, error)` - Multiple inputs, one output
+
+This design ensures that:
+- Each processor runs in complete isolation within its own goroutine
+- Controller provides thread-safe communication with the processor goroutine
+- Initialization errors are caught before goroutine execution begins
+- Resource cleanup happens automatically when the goroutine terminates
 
 ## Processor Types
 

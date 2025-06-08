@@ -5,18 +5,31 @@ import (
 	"sync/atomic"
 )
 
+// Generic1In0OutSyncProcessor[In] consumes data without producing output.
+// • Input: In (raw data type from upstream)
+// • Output: None (side effects only)
+// • Synchronous: Process(In) blocks until output ready
 type Generic1In0OutSyncProcessor[In any] interface {
 	Init() error
 	Process(In) error
 	Close() error
 }
 
+// Generic1In0OutSyncProcessorIO[I, In] adapts sync sink input.
+// • I: adapted input type from upstream channel
+// • In: raw input type from processor
+// • Converts I → In and manages I lifecycle
 type Generic1In0OutSyncProcessorIO[I, In any] interface {
 	AsInput(I) In
 
 	ReleaseInput(I)
 }
 
+// InitializeGeneric1In0OutSyncProcessor[IO, I, In] creates processor setup closure.
+// • IO: adapter implementing Generic1In0OutSyncProcessorIO[I, In]
+// • I: adapted input type from upstream channel
+// • In: raw input type from processor
+// Returns closure that spawns processor goroutine and produces (*Controller, error).
 func InitializeGeneric1In0OutSyncProcessor[IO Generic1In0OutSyncProcessorIO[I, In], I, In any](processor Generic1In0OutSyncProcessor[In], opts ...Option) func(<-chan I) (*Controller, error) {
 	var config config
 	for _, opt := range opts {
