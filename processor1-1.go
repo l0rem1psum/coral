@@ -6,9 +6,9 @@ import (
 )
 
 // Generic1In1OutSyncProcessor[In, Out] transforms data synchronously with 1:1 mapping.
-// • Input: In (raw data type from upstream)
-// • Output: Out (raw data type produced by processor)
-// • Synchronous: Process(In) blocks until output ready
+//   - Input: In (raw data type from upstream)
+//   - Output: Out (raw data type produced by processor)
+//   - Synchronous: Process(In) blocks until output ready
 type Generic1In1OutSyncProcessor[In, Out any] interface {
 	Init() error
 	Process(In) (Out, error)
@@ -16,10 +16,10 @@ type Generic1In1OutSyncProcessor[In, Out any] interface {
 }
 
 // Generic1In1OutSyncProcessorIO[I, O, In, Out] adapts sync transformer input/output.
-// • I: adapted input type from upstream channel
-// • O: adapted output type for downstream consumers
-// • In: raw input type from processor
-// • Out: raw output type from processor
+//   - I: adapted input type from upstream channel
+//   - O: adapted output type for downstream consumers
+//   - In: raw input type from processor
+//   - Out: raw output type from processor
 type Generic1In1OutSyncProcessorIO[I, O, In, Out any] interface {
 	AsInput(I) In
 	FromOutput(I, Out) O
@@ -29,11 +29,12 @@ type Generic1In1OutSyncProcessorIO[I, O, In, Out any] interface {
 }
 
 // InitializeGeneric1In1OutSyncProcessor[IO, I, O, In, Out] creates processor setup closure.
-// • IO: adapter implementing Generic1In1OutSyncProcessorIO[I, O, In, Out]
-// • I: adapted input type from upstream channel
-// • O: adapted output type for downstream consumers
-// • In: raw input type from processor
-// • Out: raw output type from processor
+//   - IO: adapter implementing Generic1In1OutSyncProcessorIO[I, O, In, Out]
+//   - I: adapted input type from upstream channel
+//   - O: adapted output type for downstream consumers
+//   - In: raw input type from processor
+//   - Out: raw output type from processor
+//
 // Returns closure that spawns processor goroutine and produces (*Controller, chan O, error).
 func InitializeGeneric1In1OutSyncProcessor[IO Generic1In1OutSyncProcessorIO[I, O, In, Out], I, O, In, Out any](processor Generic1In1OutSyncProcessor[In, Out], opts ...Option) func(<-chan I) (*Controller, chan O, error) {
 	var config config
@@ -240,9 +241,9 @@ func InitializeGeneric1In1OutSyncProcessor[IO Generic1In1OutSyncProcessorIO[I, O
 }
 
 // Generic1In1OutAsyncProcessor[In, Out] transforms data asynchronously with separate input/output handling.
-// • Input: In (raw data type) via Process(In)
-// • Output: Out (raw data type produced by processor) via self-managed Output() channel
-// • Asynchronous: input processing and output generation decoupled
+//   - Input: In (raw data type) via Process(In)
+//   - Output: Out (raw data type produced by processor) via self-managed Output() channel
+//   - Asynchronous: input processing and output generation decoupled
 type Generic1In1OutAsyncProcessor[In, Out any] interface {
 	Init() error
 	Process(In) error
@@ -251,10 +252,10 @@ type Generic1In1OutAsyncProcessor[In, Out any] interface {
 }
 
 // Generic1In1OutAsyncProcessorIO[I, O, In, Out] adapts async transformer input/output.
-// • I: adapted input type from upstream channel
-// • O: adapted output type for downstream consumers
-// • In: raw input type from processor
-// • Out: raw output type from processor
+//   - I: adapted input type from upstream channel
+//   - O: adapted output type for downstream consumers
+//   - In: raw input type from processor
+//   - Out: raw output type from processor
 type Generic1In1OutAsyncProcessorIO[I, O, In, Out any] interface {
 	AsInput(I) In
 	FromOutput(Out) O
@@ -264,11 +265,12 @@ type Generic1In1OutAsyncProcessorIO[I, O, In, Out any] interface {
 }
 
 // InitializeGeneric1In1OutAsyncProcessor[IO, I, O, In, Out] creates async processor setup closure.
-// • IO: adapter implementing Generic1In1OutAsyncProcessorIO[I, O, In, Out]
-// • I: adapted input type from upstream channel
-// • O: adapted output type for downstream consumers
-// • In: raw input type from processor
-// • Out: raw output type from processor
+//   - IO: adapter implementing Generic1In1OutAsyncProcessorIO[I, O, In, Out]
+//   - I: adapted input type from upstream channel
+//   - O: adapted output type for downstream consumers
+//   - In: raw input type from processor
+//   - Out: raw output type from processor
+//
 // Returns closure that spawns processor goroutine and produces (*Controller, chan O, error).
 func InitializeGeneric1In1OutAsyncProcessor[IO Generic1In1OutAsyncProcessorIO[I, O, In, Out], I, O, In, Out any](processor Generic1In1OutAsyncProcessor[In, Out], opts ...Option) func(<-chan I) (*Controller, chan O, error) {
 	var config config

@@ -9,9 +9,9 @@ import (
 )
 
 // Generic1InNOutSyncProcessor[In, Out] broadcasts single input to multiple outputs.
-// • Input: In (raw data type from upstream)
-// • Output: []Out (slice of raw data type produced by processor)
-// • Synchronous: Process(In) blocks until output ready
+//   - Input: In (raw data type from upstream)
+//   - Output: []Out (slice of raw data type produced by processor)
+//   - Synchronous: Process(In) blocks until output ready
 type Generic1InNOutSyncProcessor[In, Out any] interface {
 	NumOutputs() int
 	Init() error
@@ -20,10 +20,10 @@ type Generic1InNOutSyncProcessor[In, Out any] interface {
 }
 
 // Generic1InNOutSyncProcessorIO[I, O, In, Out] adapts sync broadcaster input/output.
-// • I: adapted input type from upstream channel
-// • O: adapted output type for downstream consumers
-// • In: raw input type from processor
-// • Out: raw output type from processor
+//   - I: adapted input type from upstream channel
+//   - O: adapted output type for downstream consumers
+//   - In: raw input type from processor
+//   - Out: raw output type from processor
 type Generic1InNOutSyncProcessorIO[I, O, In, Out any] interface {
 	AsInput(I) In
 	FromOutput(I, Out) O
@@ -33,11 +33,12 @@ type Generic1InNOutSyncProcessorIO[I, O, In, Out any] interface {
 }
 
 // InitializeGeneric1InNOutSyncProcessor[IO, I, O, In, Out] creates processor setup closure.
-// • IO: adapter implementing Generic1InNOutSyncProcessorIO[I, O, In, Out]
-// • I: adapted input type from upstream channel
-// • O: adapted output type for downstream consumers
-// • In: raw input type from processor
-// • Out: raw output type from processor
+//   - IO: adapter implementing Generic1InNOutSyncProcessorIO[I, O, In, Out]
+//   - I: adapted input type from upstream channel
+//   - O: adapted output type for downstream consumers
+//   - In: raw input type from processor
+//   - Out: raw output type from processor
+//
 // Returns closure that spawns processor goroutine and produces (*Controller, []chan O, error).
 func InitializeGeneric1InNOutSyncProcessor[IO Generic1InNOutSyncProcessorIO[I, O, In, Out], I, O, In, Out any](processor Generic1InNOutSyncProcessor[In, Out], opts ...Option) func(<-chan I) (*Controller, []chan O, error) {
 	var config config
