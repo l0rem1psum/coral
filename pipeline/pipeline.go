@@ -12,8 +12,12 @@ import (
 	processor "github.com/l0rem1psum/coral"
 )
 
+// EdgeLabels represents a collection of channel labels for processor connections.
+// Used to define multiple input or output channels for a single processor vertex.
 type EdgeLabels []string
 
+// ProcessorVertex defines a processor node in the pipeline DAG.
+// Label identifies the processor, Inputs/Outputs define channel connections.
 type ProcessorVertex struct {
 	Label   string
 	Inputs  []EdgeLabels
@@ -33,12 +37,17 @@ func processorVertexHash(n *processorVertex) string {
 	return n.label
 }
 
+// Pipeline orchestrates data processing workflows as Directed Acyclic Graphs (DAGs).
+// Manages processor lifecycle, channel wiring, and topological execution ordering.
 type Pipeline struct {
 	graph graph.Graph[string, *processorVertex]
 
 	logger *slog.Logger
 }
 
+// NewPipeline creates a new pipeline from processor vertex definitions.
+// Validates DAG structure, ensures unique output labels, and establishes channel connectivity.
+// Returns error if topology is invalid or channel labels conflict.
 func NewPipeline(vertices []ProcessorVertex, logger *slog.Logger) (*Pipeline, error) {
 	g := graph.New(processorVertexHash, graph.Directed(), graph.Acyclic())
 
@@ -312,6 +321,9 @@ func AddGeneric1In0OutSyncProcessor[
 	return ppl.addProcessor(label, initializer)
 }
 
+// Initialize builds the complete pipeline by calling processor initializers in topological order.
+// Wires channels between processors, validates type compatibility, and prepares for execution.
+// Returns error if any processor fails initialization or topology is invalid.
 func (ppl *Pipeline) Initialize() error {
 	topSortedVertices, err := graph.TopologicalSort(ppl.graph)
 	if err != nil {
@@ -421,6 +433,9 @@ func (ppl *Pipeline) stopAllControllers() {
 	}
 }
 
+// Start begins execution of all processors in topological order.
+// Ensures proper startup sequence and stops all processors on any failure.
+// Must be called after Initialize(). Returns error if startup fails.
 func (ppl *Pipeline) Start() error {
 	topSortedVertices, err := graph.TopologicalSort(ppl.graph)
 	if err != nil {
@@ -453,6 +468,8 @@ func (ppl *Pipeline) Start() error {
 	return nil
 }
 
+// Stop gracefully shuts down all processors in the pipeline.
+// Automatically handles cleanup and resource release across all components.
 func (ppl *Pipeline) Stop() error {
 	ppl.stopAllControllers()
 	return nil
@@ -492,11 +509,16 @@ func callProcessorInitializer(
 	return reflect.ValueOf(processorVertex.procInitializer).Call(paramsIn), nil
 }
 
+// DumpDot exports the pipeline topology as a Graphviz DOT file for visualization.
+// Creates pipeline.gv file in current directory showing processor connections.
 func (ppl *Pipeline) DumpDot() {
 	file, _ := os.Create("./pipeline.gv")
 	_ = draw.DOT(ppl.graph, file)
 }
 
+// GetControllerByVertex retrieves the Controller for a specific processor by vertex label.
+// Enables fine-grained control of individual processors within the pipeline.
+// Returns error if vertex not found or not initialized.
 func (ppl *Pipeline) GetControllerByVertex(vertex string) (*processor.Controller, error) {
 	pv, err := ppl.graph.Vertex(vertex)
 	if err != nil {

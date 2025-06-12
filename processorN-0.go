@@ -5,18 +5,31 @@ import (
 	"sync/atomic"
 )
 
+// GenericNIn0OutAsyncProcessor[In] consumes data from multiple input streams without output.
+// • Input: In (raw data type from multiple upstream channels)
+// • Output: None (side effects only)
+// • Asynchronous: Process(index, In) called per input channel, index identifies source channel
 type GenericNIn0OutAsyncProcessor[In any] interface {
 	Init() error
 	Process(int, In) error
 	Close() error
 }
 
+// GenericNIn0OutAsyncProcessorIO[I, In] adapts multiple input sink.
+// • I: adapted input type from upstream channels
+// • In: raw input type from processor
+// • Converts I → In and manages I lifecycle
 type GenericNIn0OutAsyncProcessorIO[I, In any] interface {
 	AsInput(I) In
 
 	ReleaseInput(I)
 }
 
+// InitializeGenericNIn0OutAsyncProcessor[IO, I, In] creates processor setup closure.
+// • IO: adapter implementing GenericNIn0OutAsyncProcessorIO[I, In]
+// • I: adapted input type from upstream channels
+// • In: raw input type from processor
+// Returns closure that spawns processor goroutine and produces (*Controller, error).
 func InitializeGenericNIn0OutAsyncProcessor[IO GenericNIn0OutAsyncProcessorIO[I, In], I, In any](processor GenericNIn0OutAsyncProcessor[In], opts ...Option) func([]<-chan I) (*Controller, error) {
 	var config config
 	for _, opt := range opts {

@@ -5,6 +5,10 @@ import (
 	"sync/atomic"
 )
 
+// Generic2In1OutAsyncProcessor[In1, In2, Out] aggregates two input streams into single output.
+// • Input: In1 (raw data type from first upstream), In2 (raw data type from second upstream)
+// • Output: Out (raw data type produced by processor) via self-managed Output() channel
+// • Asynchronous: input processing and output generation decoupled
 type Generic2In1OutAsyncProcessor[In1, In2, Out any] interface {
 	Init() error
 	Process1(In1) error
@@ -13,6 +17,13 @@ type Generic2In1OutAsyncProcessor[In1, In2, Out any] interface {
 	Close() error
 }
 
+// Generic2In1OutAsyncProcessorIO[I1, I2, O, In1, In2, Out] adapts async aggregator input/output.
+// • I1: adapted input type from first upstream channel
+// • I2: adapted input type from second upstream channel
+// • O: adapted output type for downstream consumers
+// • In1: raw input type from processor for first input
+// • In2: raw input type from processor for second input
+// • Out: raw output type from processor
 type Generic2In1OutAsyncProcessorIO[I1, I2, O, In1, In2, Out any] interface {
 	AsInput1(I1) In1
 	AsInput2(I2) In2
@@ -23,6 +34,15 @@ type Generic2In1OutAsyncProcessorIO[I1, I2, O, In1, In2, Out any] interface {
 	ReleaseOutput(O)
 }
 
+// InitializeGeneric2In1OutAsyncProcessor[IO, I1, I2, O, In1, In2, Out] creates async processor setup closure.
+// • IO: adapter implementing Generic2In1OutAsyncProcessorIO[I1, I2, O, In1, In2, Out]
+// • I1: adapted input type from first upstream channel
+// • I2: adapted input type from second upstream channel
+// • O: adapted output type for downstream consumers
+// • In1: raw input type from processor for first input
+// • In2: raw input type from processor for second input
+// • Out: raw output type from processor
+// Returns closure that spawns processor goroutine and produces (*Controller, chan O, error).
 func InitializeGeneric2In1OutAsyncProcessor[IO Generic2In1OutAsyncProcessorIO[I1, I2, O, In1, In2, Out], I1, I2, O, In1, In2, Out any](processor Generic2In1OutAsyncProcessor[In1, In2, Out], opts ...Option) func(<-chan I1, <-chan I2) (*Controller, chan O, error) {
 	var config config
 	for _, opt := range opts {
