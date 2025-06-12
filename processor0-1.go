@@ -6,9 +6,9 @@ import (
 )
 
 // Generic0In1OutSyncProcessor[Out] generates data without input.
-// • Input: None
-// • Output: Out (raw data type produced by processor)
-// • Synchronous: Process() blocks until output ready
+//   - Input: None
+//   - Output: Out (raw data type produced by processor)
+//   - Synchronous: Process() blocks until output ready
 type Generic0In1OutSyncProcessor[Out any] interface {
 	Init() error
 	Process() (Out, error)
@@ -16,9 +16,9 @@ type Generic0In1OutSyncProcessor[Out any] interface {
 }
 
 // Generic0In1OutSyncProcessorIO[O, Out] adapts processor output for consumption.
-// • O: adapted output type for downstream consumers
-// • Out: raw output type from processor
-// • Converts Out → O and manages O lifecycle
+//   - O: adapted output type for downstream consumers
+//   - Out: raw output type from processor
+//   - Converts Out → O and manages O lifecycle
 type Generic0In1OutSyncProcessorIO[O, Out any] interface {
 	FromOutput(Out) O
 
@@ -26,9 +26,10 @@ type Generic0In1OutSyncProcessorIO[O, Out any] interface {
 }
 
 // InitializeGeneric0In1OutSyncProcessor[IO, O, Out] creates processor setup closure.
-// • IO: adapter implementing Generic0In1OutSyncProcessorIO[O, Out]
-// • O: adapted output type for downstream consumers
-// • Out: raw processor output type
+//   - IO: adapter implementing Generic0In1OutSyncProcessorIO[O, Out]
+//   - O: adapted output type for downstream consumers
+//   - Out: raw processor output type
+//
 // Returns closure that spawns processor goroutine and produces (*Controller, chan O, error).
 func InitializeGeneric0In1OutSyncProcessor[IO Generic0In1OutSyncProcessorIO[O, Out], O, Out any](processor Generic0In1OutSyncProcessor[Out], opts ...Option) func() (*Controller, chan O, error) {
 	var config config
@@ -227,9 +228,9 @@ func InitializeGeneric0In1OutSyncProcessor[IO Generic0In1OutSyncProcessorIO[O, O
 }
 
 // Generic0In1OutAsyncProcessor[Out] generates data asynchronously without input.
-// • Input: None
-// • Output: Out (raw data type) via self-managed channel
-// • Asynchronous: controls own production timing
+//   - Input: None
+//   - Output: Out (raw data type) via self-managed channel
+//   - Asynchronous: controls own production timing
 type Generic0In1OutAsyncProcessor[Out any] interface {
 	Init() error
 	Start() error
@@ -238,9 +239,9 @@ type Generic0In1OutAsyncProcessor[Out any] interface {
 }
 
 // Generic0In1OutAsyncProcessorIO[O, Out] adapts async processor output for consumption.
-// • O: adapted output type for downstream consumers
-// • Out: raw output type from async processor
-// • Converts Out → O and manages O lifecycle
+//   - O: adapted output type for downstream consumers
+//   - Out: raw output type from async processor
+//   - Converts Out → O and manages O lifecycle
 type Generic0In1OutAsyncProcessorIO[O, Out any] interface {
 	FromOutput(Out) O
 
@@ -248,9 +249,10 @@ type Generic0In1OutAsyncProcessorIO[O, Out any] interface {
 }
 
 // InitializeGeneric0In1OutAsyncProcessor[IO, O, Out] creates async processor setup closure.
-// • IO: adapter implementing Generic0In1OutAsyncProcessorIO[O, Out]
-// • O: adapted output type for downstream consumers
-// • Out: raw async processor output type
+//   - IO: adapter implementing Generic0In1OutAsyncProcessorIO[O, Out]
+//   - O: adapted output type for downstream consumers
+//   - Out: raw async processor output type
+//
 // Returns closure that spawns processor goroutine and produces (*Controller, chan O, error).
 func InitializeGeneric0In1OutAsyncProcessor[IO Generic0In1OutAsyncProcessorIO[O, Out], O, Out any](processor Generic0In1OutAsyncProcessor[Out], opts ...Option) func() (*Controller, chan O, error) {
 	var config config

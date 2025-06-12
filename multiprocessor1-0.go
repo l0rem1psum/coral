@@ -9,10 +9,11 @@ import (
 )
 
 // InitializeGeneric1In0OutSyncMultiProcessor[IO, I, In, P] creates multi-processor setup closure for parallel sink processing.
-// • IO: adapter implementing Generic1In0OutSyncProcessorIO[I, In]
-// • I: adapted input type from upstream channel
-// • In: raw input type from processor
-// • P: processor type implementing Generic1In0OutSyncProcessor[In]
+//   - IO: adapter implementing Generic1In0OutSyncProcessorIO[I, In]
+//   - I: adapted input type from upstream channel
+//   - In: raw input type from processor
+//   - P: processor type implementing Generic1In0OutSyncProcessor[In]
+//
 // Returns closure that spawns processor goroutines and produces (*Controller, []error).
 // Input slices are distributed 1:1 across processor instances for parallel execution.
 func InitializeGeneric1In0OutSyncMultiProcessor[IO Generic1In0OutSyncProcessorIO[I, In], I, In any, P Generic1In0OutSyncProcessor[In]](processors []P, opts ...Option) func(inputs <-chan []I) (*Controller, []error) {

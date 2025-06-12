@@ -10,12 +10,13 @@ import (
 )
 
 // InitializeGeneric1InNOutSyncMultiProcessor[IO, I, O, In, Out, P] creates multi-processor setup closure for parallel broadcasting.
-// • IO: adapter implementing Generic1InNOutSyncProcessorIO[I, O, In, Out]
-// • I: adapted input type from upstream channel
-// • O: adapted output type for downstream consumers
-// • In: raw input type from processor
-// • Out: raw output type from processor
-// • P: processor type implementing Generic1InNOutSyncProcessor[In, Out]
+//   - IO: adapter implementing Generic1InNOutSyncProcessorIO[I, O, In, Out]
+//   - I: adapted input type from upstream channel
+//   - O: adapted output type for downstream consumers
+//   - In: raw input type from processor
+//   - Out: raw output type from processor
+//   - P: processor type implementing Generic1InNOutSyncProcessor[In, Out]
+//
 // Returns closure that spawns processor goroutines and produces (*Controller, []chan []O, []error).
 // Input slices are distributed 1:1 across processor instances, outputs transposed across N channels.
 func InitializeGeneric1InNOutSyncMultiProcessor[IO Generic1InNOutSyncProcessorIO[I, O, In, Out], I, O, In, Out any, P Generic1InNOutSyncProcessor[In, Out]](processors []P, opts ...Option) func(inputs <-chan []I) (*Controller, []chan []O, []error) {

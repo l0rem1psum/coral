@@ -6,9 +6,9 @@ import (
 )
 
 // GenericNIn1OutAsyncProcessor[In, Out] aggregates multiple input streams into single output.
-// • Input: In (raw data type from multiple upstream channels)
-// • Output: Out (raw data type produced by processor) via self-managed Output() channel
-// • Asynchronous: Process(index, In) called per input channel, index identifies source channel, output generation decoupled
+//   - Input: In (raw data type from multiple upstream channels)
+//   - Output: Out (raw data type produced by processor) via self-managed Output() channel
+//   - Asynchronous: Process(index, In) called per input channel, index identifies source channel, output generation decoupled
 type GenericNIn1OutAsyncProcessor[In, Out any] interface {
 	Init() error
 	Process(int, In) error
@@ -17,10 +17,10 @@ type GenericNIn1OutAsyncProcessor[In, Out any] interface {
 }
 
 // GenericNIn1OutAsyncProcessorIO[I, O, In, Out] adapts multiple input aggregator input/output.
-// • I: adapted input type from upstream channels
-// • O: adapted output type for downstream consumers
-// • In: raw input type from processor
-// • Out: raw output type from processor
+//   - I: adapted input type from upstream channels
+//   - O: adapted output type for downstream consumers
+//   - In: raw input type from processor
+//   - Out: raw output type from processor
 type GenericNIn1OutAsyncProcessorIO[I, O, In, Out any] interface {
 	AsInput(I) In
 	FromOutput(Out) O
@@ -30,11 +30,12 @@ type GenericNIn1OutAsyncProcessorIO[I, O, In, Out any] interface {
 }
 
 // InitializeGenericNIn1OutAsyncProcessor[IO, I, O, In, Out] creates async processor setup closure.
-// • IO: adapter implementing GenericNIn1OutAsyncProcessorIO[I, O, In, Out]
-// • I: adapted input type from upstream channels
-// • O: adapted output type for downstream consumers
-// • In: raw input type from processor
-// • Out: raw output type from processor
+//   - IO: adapter implementing GenericNIn1OutAsyncProcessorIO[I, O, In, Out]
+//   - I: adapted input type from upstream channels
+//   - O: adapted output type for downstream consumers
+//   - In: raw input type from processor
+//   - Out: raw output type from processor
+//
 // Returns closure that spawns processor goroutine and produces (*Controller, chan O, error).
 func InitializeGenericNIn1OutAsyncProcessor[IO GenericNIn1OutAsyncProcessorIO[I, O, In, Out], I, O, In, Out any](processor GenericNIn1OutAsyncProcessor[In, Out], opts ...Option) func([]<-chan I) (*Controller, chan O, error) {
 	var config config
