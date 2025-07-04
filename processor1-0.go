@@ -2,7 +2,6 @@ package processor
 
 import (
 	"log/slog"
-	"sync/atomic"
 )
 
 // Generic1In0OutSyncProcessor[In] consumes data without producing output.
@@ -47,162 +46,264 @@ func InitializeGeneric1In0OutSyncProcessor[IO Generic1In0OutSyncProcessorIO[I, I
 	}
 
 	return func(input <-chan I) (*Controller, error) {
-		var io IO
+		fsm := newFSM1In0OutSync[IO](processor, config, logger, input)
+		return fsm.Initialize()
+	}
+}
 
-		closeCh := make(chan struct{})
-		doneCh := make(chan struct{})
+type fsm1In0OutSync[IO Generic1In0OutSyncProcessorIO[I, In], I, In any] struct {
+	*fsm
 
-		initErrCh := make(chan error)
-		closeErrCh := make(chan error)
-		startCh := make(chan struct{})
-		stopAfterInit := make(chan struct{})
+	processor Generic1In0OutSyncProcessor[In]
 
-		controlReqCh := make(chan *wrappedRequest)
+	config config
+	logger *slog.Logger
 
-		supportsControl := false
-		if _, ok := processor.(Controllable); ok {
-			supportsControl = true
-		}
+	supportsControl bool
+	controllable    Controllable
 
-		loopStarted := atomic.Bool{}
-		loopEnded := atomic.Bool{}
+	inputCh       <-chan I
+	closeCh       chan struct{}
+	doneCh        chan struct{}
+	initErrCh     chan error
+	closeErrCh    chan error
+	startCh       chan struct{}
+	startDoneCh   chan struct{}
+	stopAfterInit chan struct{}
+	controlReqCh  chan *wrappedRequest
+}
 
-		loop := func() {
-			initErr := processor.Init()
-			if initErr != nil {
-				initErrCh <- initErr
-				return
-			}
-			initErrCh <- nil
+func newFSM1In0OutSync[
+	IO Generic1In0OutSyncProcessorIO[I, In],
+	I, In any,
+](
+	processor Generic1In0OutSyncProcessor[In],
+	config config,
+	logger *slog.Logger,
+	inputCh <-chan I,
+) *fsm1In0OutSync[IO, I, In] {
+	controllable, supportsControl := processor.(Controllable)
 
-			select {
-			case <-startCh:
-			case <-stopAfterInit:
-				logger.Info("Closing processor after initialization and before start")
-				closeErrCh <- processor.Close()
-				return
-			}
+	fsm := &fsm1In0OutSync[IO, I, In]{
+		fsm:             &fsm{},
+		processor:       processor,
+		config:          config,
+		logger:          logger,
+		inputCh:         inputCh,
+		supportsControl: supportsControl,
+		controllable:    controllable,
+		closeCh:         make(chan struct{}),
+		doneCh:          make(chan struct{}),
+		initErrCh:       make(chan error),
+		closeErrCh:      make(chan error),
+		startCh:         make(chan struct{}),
+		startDoneCh:     make(chan struct{}),
+		stopAfterInit:   make(chan struct{}),
+		controlReqCh:    make(chan *wrappedRequest),
+	}
 
-			paused := config.startPaused
+	fsm.setState(StateCreated)
+	return fsm
+}
 
-			logger.Info("Processor started")
-		LOOP:
-			for {
-				select {
-				case i, ok := <-input:
-					if !ok {
-						loopEnded.Swap(true)
-						logger.Info("Input channel closed, stopping")
-						break LOOP
-					}
+// Initialize starts the FSM and returns the Controller
+func (fsm *fsm1In0OutSync[_, _, _]) Initialize() (*Controller, error) {
+	// Start the processor goroutine
+	go fsm.run()
 
-					if paused {
-						io.ReleaseInput(i)
-						continue
-					}
+	// Wait for initialization to complete
+	err := <-fsm.initErrCh
+	close(fsm.initErrCh)
 
-					in := io.AsInput(i)
-					if err := processor.Process(in); err != nil {
-						logger.With("error", err).Error("Error encountered during processing, continuing")
-						continue
-					}
-				case ctlReq := <-controlReqCh:
-					switch ctlReq.req.(type) {
-					case pause:
-						if !paused {
-							paused = true
-							ctlReq.res <- nil
-							logger.Info("Processor paused")
-						} else {
-							ctlReq.res <- ErrAlreadyPaused
-						}
-						continue
-					case resume:
-						if paused {
-							paused = false
-							ctlReq.res <- nil
-							logger.Info("Processor resumed")
-						} else {
-							ctlReq.res <- ErrAlreadyRunning
-						}
-						continue
-					default:
-						if !supportsControl {
-							ctlReq.res <- ErrControlNotSupported
-							continue
-						}
-
-						ctlReq.res <- processor.(Controllable).OnControl(ctlReq.req)
-					}
-				case <-closeCh:
-					loopEnded.Swap(true)
-					logger.Info("Close signal received, stopping")
-					break LOOP
-				}
-			}
-			close(doneCh)
-
-			closeErrCh <- processor.Close()
-			logger.Info("Processor stopped")
-		}
-
-		go loop()
-
-		err := <-initErrCh
-		close(initErrCh)
-		if err != nil { // Error during init
-			return &Controller{
-				starter: &starter{
-					f: func() error {
-						// Since init failed
-						return ErrUnableToStart
-					},
-				},
-				stopper: &stopper{
-					f: func() error {
-						// Init failed, close everything
-						close(closeCh)
-						close(doneCh)
-						close(startCh)
-						// Since init failed, we don't need to call Close
-						return nil
-					},
-				},
-				loopStarted: &loopStarted,
-				loopEnded:   &loopEnded,
-				reqCh:       controlReqCh,
-			}, err
-		}
-
+	if err != nil { // Initialization failed
+		close(fsm.closeCh)
+		close(fsm.doneCh)
+		close(fsm.closeErrCh)
+		close(fsm.startCh)
+		close(fsm.startDoneCh)
+		close(fsm.stopAfterInit)
+		close(fsm.controlReqCh)
 		return &Controller{
 			starter: &starter{
 				f: func() error {
-					// Init succeeded, start the loop normally
-					_ = loopStarted.Swap(true)
-					close(startCh)
-					// No error generated after init and before start
-					return nil
+					return ErrUnableToStart
 				},
 			},
 			stopper: &stopper{
 				f: func() error {
-					if loopStarted.Load() {
-						// Loop already started, wait for close signal, or input channel closed
-						close(closeCh)
-						<-doneCh
-					} else {
-						// Inited but loop not started
-						close(stopAfterInit)
-						close(closeCh)
-						close(doneCh)
-					}
-					// In both cases, Close are called
-					return <-closeErrCh
+					return nil
 				},
 			},
-			loopStarted: &loopStarted,
-			loopEnded:   &loopEnded,
-			reqCh:       controlReqCh,
-		}, nil
+			reqCh:    fsm.controlReqCh,
+			fsmState: &fsm.state,
+		}, err
 	}
+
+	// Initialization succeeded
+	return &Controller{
+		starter: &starter{
+			f: func() error {
+				// Init succeeded, start the loop normally
+				close(fsm.startCh)
+				<-fsm.startDoneCh
+				// No error generated after init and before start
+				return nil
+			},
+		},
+		stopper: &stopper{
+			f: func() error {
+				if fsm.getState() == StateRunning ||
+					fsm.getState() == StatePaused ||
+					fsm.getState() == StateTerminating {
+					// Loop already started, signal close and wait
+					close(fsm.closeCh)
+					<-fsm.doneCh
+				} else if fsm.getState() == StateWaitingToStart {
+					// Loop not started, stop before start
+					close(fsm.stopAfterInit)
+					close(fsm.closeCh)
+					close(fsm.doneCh)
+				} else {
+					panic("impossible state: " + fsm.getState().String())
+				}
+				return <-fsm.closeErrCh
+			},
+		},
+		reqCh:    fsm.controlReqCh,
+		fsmState: &fsm.state,
+	}, nil
+}
+
+// run is the main goroutine that drives the FSM
+func (fsm *fsm1In0OutSync[_, _, _]) run() {
+	fsm.transitionTo(StateInitializing)
+
+	initErr := fsm.processor.Init()
+	if initErr != nil {
+		fsm.initErrCh <- initErr
+		fsm.transitionTo(StateTerminated)
+		return
+	}
+	fsm.initErrCh <- nil
+	fsm.transitionTo(StateWaitingToStart)
+
+	// Wait for start signal or early stop
+	select {
+	case <-fsm.startCh:
+		if fsm.config.startPaused {
+			fsm.transitionTo(StatePaused)
+			fsm.logger.Info("Processor started in paused state")
+		} else {
+			fsm.transitionTo(StateRunning)
+			fsm.logger.Info("Processor started")
+		}
+		close(fsm.startDoneCh)
+		close(fsm.stopAfterInit)
+	case <-fsm.stopAfterInit:
+		fsm.logger.Info("Closing processor after initialization and before start")
+		fsm.transitionTo(StateTerminating)
+		fsm.closeErrCh <- fsm.processor.Close()
+		fsm.transitionTo(StateTerminated)
+		return
+	}
+
+	fsm.processingLoop()
+
+	fsm.cleanup()
+}
+
+// transitionTo changes the FSM state atomically and logs the transition
+func (fsm *fsm1In0OutSync[_, _, _]) transitionTo(newState ProcessorState) {
+	oldState := fsm.getState()
+	fsm.setState(newState)
+	fsm.logger.Debug("State transition", "from", oldState.String(), "to", newState.String())
+}
+
+// processingLoop handles the main processing logic
+func (fsm *fsm1In0OutSync[_, _, _]) processingLoop() {
+LOOP:
+	for {
+		select {
+		case i, ok := <-fsm.inputCh:
+			if !ok {
+				fsm.transitionTo(StateTerminating)
+				fsm.logger.Info("Input channel closed, stopping")
+				break LOOP
+			}
+			fsm.handleInput(i)
+		case ctlReq := <-fsm.controlReqCh:
+			fsm.handleControlRequest(ctlReq)
+		case <-fsm.closeCh:
+			fsm.transitionTo(StateTerminating)
+			fsm.logger.Info("Close signal received, stopping")
+			break LOOP
+		}
+	}
+}
+
+// handleInput processes a single input item based on current state
+func (fsm *fsm1In0OutSync[IO, I, _]) handleInput(i I) {
+	var io IO
+
+	switch fsm.getState() {
+	case StateRunning:
+		fsm.processInput(i)
+	case StatePaused:
+		io.ReleaseInput(i)
+	default:
+		panic("impossible state: " + fsm.getState().String())
+	}
+}
+
+// processInput handles the actual input processing
+func (fsm *fsm1In0OutSync[IO, I, _]) processInput(i I) {
+	var io IO
+
+	in := io.AsInput(i)
+	if err := fsm.processor.Process(in); err != nil {
+		fsm.logger.With("error", err).Error("Error encountered during processing, continuing")
+	}
+}
+
+// handleControlRequest processes control messages (pause, resume, custom)
+func (fsm *fsm1In0OutSync[_, _, _]) handleControlRequest(ctlReq *wrappedRequest) {
+	switch ctlReq.req.(type) {
+	case pause:
+		if fsm.getState() == StateRunning {
+			fsm.transitionTo(StatePaused)
+			ctlReq.res <- nil
+			fsm.logger.Info("Processor paused")
+		} else if fsm.getState() == StatePaused {
+			ctlReq.res <- ErrAlreadyPaused
+		} else {
+			panic("impossible state: " + fsm.getState().String())
+		}
+	case resume:
+		if fsm.getState() == StatePaused {
+			fsm.transitionTo(StateRunning)
+			ctlReq.res <- nil
+			fsm.logger.Info("Processor resumed")
+		} else if fsm.getState() == StateRunning {
+			ctlReq.res <- ErrAlreadyRunning
+		} else {
+			panic("impossible state: " + fsm.getState().String())
+		}
+	default:
+		if !fsm.supportsControl {
+			ctlReq.res <- ErrControlNotSupported
+			return
+		}
+		ctlReq.res <- fsm.controllable.OnControl(ctlReq.req)
+	}
+}
+
+func (fsm *fsm1In0OutSync[_, _, _]) cleanup() {
+	close(fsm.doneCh)
+	close(fsm.controlReqCh)
+
+	// Close the processor and report any error
+	fsm.closeErrCh <- fsm.processor.Close()
+	fsm.logger.Info("Processor stopped")
+
+	fsm.transitionTo(StateTerminated)
 }

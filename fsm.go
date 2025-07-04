@@ -85,10 +85,10 @@ type fsm struct {
 	state atomic.Int32
 }
 
-func (fsm *fsm1In1OutSync[IO, I, O, In, Out]) getState() ProcessorState {
+func (fsm *fsm) getState() ProcessorState {
 	return ProcessorState(fsm.state.Load())
 }
 
-func (fsm *fsm1In1OutSync[IO, I, O, In, Out]) setState(newState ProcessorState) {
+func (fsm *fsm) setState(newState ProcessorState) {
 	fsm.state.Store(int32(newState))
 }
