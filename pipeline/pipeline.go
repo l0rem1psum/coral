@@ -201,6 +201,22 @@ func AddGeneric1In1OutAsyncProcessor[
 	return ppl.addProcessor(label, initializer)
 }
 
+func AddGeneric1InNOutSyncProcessor[
+	IO processor.Generic1InNOutSyncProcessorIO[I, O, In, Out],
+	I, O, In, Out any,
+](ppl *Pipeline,
+	proc processor.Generic1InNOutSyncProcessor[In, Out],
+	label string,
+	opts ...processor.Option,
+) error {
+	defaultOpts := []processor.Option{
+		processor.WithLogger(ppl.logger),
+		processor.WithLabel(label),
+	}
+	initializer := processor.InitializeGeneric1InNOutSyncProcessor[IO](proc, append(defaultOpts, opts...)...)
+	return ppl.addProcessor(label, initializer)
+}
+
 func AddGenericMInNOutSyncProcessor[
 	IO processor.GenericMInNOutSyncProcessorIO[I, O, In, Out],
 	I, O, In, Out any,
