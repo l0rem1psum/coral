@@ -37,50 +37,6 @@ func (s ProcessorState) String() string {
 	}
 }
 
-// // ProcessorEvent represents events that can trigger state transitions
-// type ProcessorEvent int
-
-// const (
-// 	EventInitSuccess ProcessorEvent = iota
-// 	EventInitFailed
-// 	EventStartRequested
-// 	EventStopBeforeStart
-// 	EventInputReceived
-// 	EventInputClosed
-// 	EventPauseRequested
-// 	EventResumeRequested
-// 	EventCustomControl
-// 	EventCloseRequested
-// )
-
-// // String returns a human-readable representation of the processor event
-// func (e ProcessorEvent) String() string {
-// 	switch e {
-// 	case EventInitSuccess:
-// 		return "InitSuccess"
-// 	case EventInitFailed:
-// 		return "InitFailed"
-// 	case EventStartRequested:
-// 		return "StartRequested"
-// 	case EventStopBeforeStart:
-// 		return "StopBeforeStart"
-// 	case EventInputReceived:
-// 		return "InputReceived"
-// 	case EventInputClosed:
-// 		return "InputClosed"
-// 	case EventPauseRequested:
-// 		return "PauseRequested"
-// 	case EventResumeRequested:
-// 		return "ResumeRequested"
-// 	case EventCustomControl:
-// 		return "CustomControl"
-// 	case EventCloseRequested:
-// 		return "CloseRequested"
-// 	default:
-// 		return "Unknown"
-// 	}
-// }
-
 type fsm struct {
 	state atomic.Int32
 }
