@@ -64,8 +64,7 @@ type fsmMultiProcessor1In1OutSync[IO Generic1In1OutSyncProcessorIO[I, O, In, Out
 	controlReqCh  chan *wrappedRequest
 
 	// Sub-processor coordination
-	subProcessorInputChs  []chan I
-	subProcessorOutputChs []chan O
+	subProcessorInputChs []chan I
 
 	// Results from parallel initialization
 	subControllers []*Controller
@@ -89,37 +88,34 @@ func newFSMMultiProcessor1In1OutSync[IO Generic1In1OutSyncProcessorIO[I, O, In, 
 	// Create individual processor FSMs
 	subProcessorFSMs := make([]*fsm1In1OutSync[IO, I, O, In, Out], len(processors))
 	subProcessorInputChs := make([]chan I, len(processors))
-	subProcessorOutputChs := make([]chan O, len(processors))
 
 	// Always block on output channel to ensure all outputs are processed before next input batch
 	processorConfig := config
 	processorConfig.blockOnOutput = true
 	for i, processor := range processors {
 		subProcessorInputChs[i] = make(chan I)
-		subProcessorOutputChs[i] = make(chan O)
 		subProcessorFSMs[i] = newFSM1In1OutSync[IO](processor, processorConfig, logger.With("multiproc_index", i), subProcessorInputChs[i])
 	}
 
 	fsm := &fsmMultiProcessor1In1OutSync[IO, I, O, In, Out, P]{
-		fsm:                   &fsm{},
-		processors:            processors,
-		subProcessorFSMs:      subProcessorFSMs,
-		config:                config,
-		logger:                logger,
-		allSupportControl:     allSupportControl,
-		inputsCh:              inputsCh,
-		outputCh:              make(chan []O),
-		closeCh:               make(chan struct{}),
-		doneCh:                make(chan struct{}),
-		initErrsCh:            make(chan []error),
-		closeErrCh:            make(chan error),
-		startCh:               make(chan struct{}),
-		startDoneCh:           make(chan struct{}),
-		startErrsCh:           make(chan []error),
-		stopAfterInit:         make(chan struct{}),
-		controlReqCh:          make(chan *wrappedRequest),
-		subProcessorInputChs:  subProcessorInputChs,
-		subProcessorOutputChs: subProcessorOutputChs,
+		fsm:                  &fsm{},
+		processors:           processors,
+		subProcessorFSMs:     subProcessorFSMs,
+		config:               config,
+		logger:               logger,
+		allSupportControl:    allSupportControl,
+		inputsCh:             inputsCh,
+		outputCh:             make(chan []O),
+		closeCh:              make(chan struct{}),
+		doneCh:               make(chan struct{}),
+		initErrsCh:           make(chan []error),
+		closeErrCh:           make(chan error),
+		startCh:              make(chan struct{}),
+		startDoneCh:          make(chan struct{}),
+		startErrsCh:          make(chan []error),
+		stopAfterInit:        make(chan struct{}),
+		controlReqCh:         make(chan *wrappedRequest),
+		subProcessorInputChs: subProcessorInputChs,
 	}
 
 	fsm.setState(StateCreated)

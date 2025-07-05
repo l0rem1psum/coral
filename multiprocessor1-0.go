@@ -32,351 +32,415 @@ func InitializeGeneric1In0OutSyncMultiProcessor[IO Generic1In0OutSyncProcessorIO
 	}
 
 	return func(inputs <-chan []I) (*Controller, []error) {
-		inputChs := make([]chan I, len(processors))
-		outputChs := make([]chan struct{}, len(processors))
-		closeChs := make([]chan struct{}, len(processors))
+		fsm := newFSMMultiProcessor1In0OutSync[IO](processors, config, logger, inputs)
+		return fsm.Initialize()
+	}
+}
 
-		initErrChs := make([]chan error, len(processors))
-		closeErrChs := make([]chan error, len(processors))
-		startChs := make([]chan struct{}, len(processors))
-		stopAfterInits := make([]chan struct{}, len(processors))
+type fsmMultiProcessor1In0OutSync[IO Generic1In0OutSyncProcessorIO[I, In], I, In any, P Generic1In0OutSyncProcessor[In]] struct {
+	*fsm
 
-		controlReqChs := make([]chan *wrappedRequest, len(processors))
+	processors       []P
+	subProcessorFSMs []*fsm1In0OutSync[IO, I, In]
 
-		for i := range processors {
-			inputChs[i] = make(chan I)
-			outputChs[i] = make(chan struct{})
-			closeChs[i] = make(chan struct{})
+	config config
+	logger *slog.Logger
 
-			initErrChs[i] = make(chan error)
-			closeErrChs[i] = make(chan error)
-			startChs[i] = make(chan struct{})
-			stopAfterInits[i] = make(chan struct{})
+	allSupportControl bool
 
-			controlReqChs[i] = make(chan *wrappedRequest)
+	inputsCh <-chan []I
+	closeCh  chan struct{}
+	doneCh   chan struct{}
+
+	initErrsCh    chan []error
+	closeErrCh    chan error
+	startCh       chan struct{}
+	startDoneCh   chan struct{}
+	startErrsCh   chan []error
+	stopAfterInit chan struct{}
+	controlReqCh  chan *wrappedRequest
+
+	// Sub-processor coordination
+	subProcessorInputChs []chan I
+
+	// Results from parallel initialization
+	subControllers []*Controller
+}
+
+func newFSMMultiProcessor1In0OutSync[IO Generic1In0OutSyncProcessorIO[I, In], I, In any, P Generic1In0OutSyncProcessor[In]](
+	processors []P,
+	config config,
+	logger *slog.Logger,
+	inputsCh <-chan []I,
+) *fsmMultiProcessor1In0OutSync[IO, I, In, P] {
+	allSupportControl := true
+	for _, p := range processors {
+		if _, ok := any(p).(Controllable); !ok {
+			allSupportControl = false
+			break
 		}
+	}
 
-		// Start each processor in its own goroutine
-		for i, processor := range processors {
-			go singleGeneric1In0OutSyncProcessorLoop[IO](
-				processor,
-				initErrChs[i],
-				startChs[i],
-				stopAfterInits[i],
-				closeErrChs[i],
-				inputChs[i],
-				outputChs[i],
-				controlReqChs[i],
-				closeChs[i],
-				logger.With("multiproc_index", i),
-			)
+	// Create individual processor FSMs
+	subProcessorFSMs := make([]*fsm1In0OutSync[IO, I, In], len(processors))
+	subProcessorInputChs := make([]chan I, len(processors))
+
+	for i, processor := range processors {
+		subProcessorInputChs[i] = make(chan I)
+		subProcessorFSMs[i] = newFSM1In0OutSync[IO](processor, config, logger.With("multiproc_index", i), subProcessorInputChs[i])
+	}
+
+	fsm := &fsmMultiProcessor1In0OutSync[IO, I, In, P]{
+		fsm:                  &fsm{},
+		processors:           processors,
+		subProcessorFSMs:     subProcessorFSMs,
+		config:               config,
+		logger:               logger,
+		allSupportControl:    allSupportControl,
+		inputsCh:             inputsCh,
+		closeCh:              make(chan struct{}),
+		doneCh:               make(chan struct{}),
+		initErrsCh:           make(chan []error),
+		closeErrCh:           make(chan error),
+		startCh:              make(chan struct{}),
+		startDoneCh:          make(chan struct{}),
+		startErrsCh:          make(chan []error),
+		stopAfterInit:        make(chan struct{}),
+		controlReqCh:         make(chan *wrappedRequest),
+		subProcessorInputChs: subProcessorInputChs,
+	}
+
+	fsm.setState(StateCreated)
+	return fsm
+}
+
+func (fsm *fsmMultiProcessor1In0OutSync[_, _, _, _]) Initialize() (*Controller, []error) {
+	// Start the main coordinator goroutine
+	go fsm.run()
+
+	// Wait for initialization to complete
+	initErrs := <-fsm.initErrsCh
+	close(fsm.initErrsCh)
+
+	// Check if any initialization failed
+	errorDuringInit := false
+	for _, err := range initErrs {
+		if err != nil {
+			errorDuringInit = true
+			break
 		}
+	}
 
-		var wg sync.WaitGroup
-		initErrs := make([]error, len(processors))
-		errDuringInit := false
-		wg.Add(len(processors))
-		for i := range processors {
-			go func(i int) {
-				defer wg.Done()
-				initErr := <-initErrChs[i]
-				initErrs[i] = initErr
-				if initErr != nil {
-					errDuringInit = true
-				}
-			}(i)
-		}
-		wg.Wait()
-
-		if errDuringInit {
-			return &Controller{
-				starter: &starter{
-					f: func() error {
-						// Since init failed
-						return ErrUnableToStart
-					},
-				},
-				stopper: &stopper{
-					f: func() error {
-						// Init failed, close everything
-						closeMultipleChans(outputChs...)
-						closeMultipleChans(closeChs...)
-						closeMultipleChans(startChs...)
-						// Since init failed, we don't need to call Close
-						return nil
-					},
-				},
-				loopStarted: &atomic.Bool{},
-				loopEnded:   &atomic.Bool{},
-				reqCh:       nil,
-			}, initErrs
-		}
-
-		// Start controlling goroutine
-		var io IO
-
-		closeCh := make(chan struct{})
-
-		closeErrCh := make(chan error)
-		startCh := make(chan struct{})
-		stopAfterInit := make(chan struct{})
-
-		controlReqCh := make(chan *wrappedRequest)
-
-		allSupportControl := true
-		for _, p := range processors {
-			if _, ok := any(p).(Controllable); !ok {
-				allSupportControl = false
-				break
-			}
-		}
-
-		loopStarted := atomic.Bool{}
-		loopEnded := atomic.Bool{}
-
-		go func() {
-			select {
-			case <-startCh:
-				var wg sync.WaitGroup
-				wg.Add(len(processors))
-				for _, startCh := range startChs {
-					go func(startCh chan struct{}) {
-						defer wg.Done()
-						close(startCh)
-					}(startCh)
-				}
-				wg.Wait()
-			case <-stopAfterInit:
-				logger.Info("Closing multiprocessor after initialization and before start")
-				var wg sync.WaitGroup
-				wg.Add(len(processors))
-				closeErrs := make([]error, len(processors))
-				for i, stopAfterInit := range stopAfterInits {
-					go func(i int, stopAfterInit chan struct{}) {
-						defer wg.Done()
-						close(stopAfterInit)
-						closeErrs[i] = <-closeErrChs[i]
-					}(i, stopAfterInit)
-				}
-				wg.Wait()
-
-				var multierr error
-				for _, err := range closeErrs {
-					if err != nil {
-						multierr = multierror.Append(multierr, err)
-					}
-				}
-
-				closeErrCh <- multierr
-				return
-			}
-
-			paused := config.startPaused
-
-			logger.Info("Multiprocessor started")
-		LOOP:
-			for {
-				select {
-				case is, ok := <-inputs:
-					if !ok {
-						loopEnded.Swap(true)
-						logger.Info("Input channel closed, stopping")
-						break LOOP
-					}
-
-					if paused {
-						for _, i := range is {
-							io.ReleaseInput(i)
-						}
-						continue
-					}
-
-					if len(is) == 0 {
-						logger.Warn("Input is empty, dropping the input")
-						continue
-					}
-
-					if len(is) != len(processors) {
-						logger.With("input_length", len(is), "processor_length", len(processors)).Warn("Input length mismatch, dropping the input")
-						for _, i := range is {
-							io.ReleaseInput(i)
-						}
-						continue
-					}
-
-					var wg sync.WaitGroup
-					wg.Add(len(is))
-					for j, i := range is {
-						go func(j int, i I) {
-							defer wg.Done()
-							inputChs[j] <- i
-							<-outputChs[j]
-						}(j, i)
-					}
-					wg.Wait()
-				case ctlReq := <-controlReqCh:
-					switch ctlReq.req.(type) {
-					case pause:
-						if !paused {
-							paused = true
-							ctlReq.res <- nil
-							logger.Info("Multiprocessor paused")
-						} else {
-							ctlReq.res <- ErrAlreadyPaused
-						}
-						continue
-					case resume:
-						if paused {
-							paused = false
-							ctlReq.res <- nil
-							logger.Info("Multiprocessor resumed")
-						} else {
-							ctlReq.res <- ErrAlreadyRunning
-						}
-						continue
-					case *MultiProcessorRequest:
-						if !allSupportControl {
-							ctlReq.res <- ErrControlNotSupported
-							continue
-						}
-
-						multiReq := ctlReq.req.(*MultiProcessorRequest)
-						ctlReq.res <- any(processors[multiReq.I]).(Controllable).OnControl(multiReq.Req)
-						continue
-					default:
-						if !allSupportControl {
-							ctlReq.res <- ErrControlNotSupported
-							continue
-						}
-
-						var wg sync.WaitGroup
-						wg.Add(len(processors))
-						ctlErrs := make([]error, len(processors))
-						for i, processor := range processors {
-							go func(i int, processor P) {
-								defer wg.Done()
-								ctlErrs[i] = any(processor).(Controllable).OnControl(ctlReq.req)
-							}(i, processor)
-						}
-						wg.Wait()
-
-						var multierr error
-						for _, err := range ctlErrs {
-							if err != nil {
-								multierr = multierror.Append(multierr, err)
-							}
-						}
-						ctlReq.res <- multierr
-					}
-				case <-closeCh:
-					loopEnded.Swap(true)
-					logger.Info("Close signal received, stopping")
-					break LOOP
-				}
-			}
-
-			var wg sync.WaitGroup
-			wg.Add(len(processors))
-			closeErrs := make([]error, len(processors))
-			for i, closeCh := range closeChs {
-				go func(i int, closeCh chan struct{}) {
-					defer wg.Done()
-					close(closeCh)
-					closeErrs[i] = <-closeErrChs[i]
-				}(i, closeCh)
-			}
-			wg.Wait()
-
-			var multierr error
-			for _, err := range closeErrs {
-				if err != nil {
-					multierr = multierror.Append(multierr, err)
-				}
-			}
-			closeErrCh <- multierr
-			logger.Info("Multiprocessor stopped")
-		}()
-
+	if errorDuringInit {
+		// Initialization failed - return ALL errors as original did
+		close(fsm.closeCh)
+		close(fsm.doneCh)
+		close(fsm.closeErrCh)
+		close(fsm.startCh)
+		close(fsm.startDoneCh)
+		close(fsm.startErrsCh)
+		close(fsm.stopAfterInit)
+		close(fsm.controlReqCh)
 		return &Controller{
 			starter: &starter{
 				f: func() error {
-					// Init succeeded, start the loop normally
-					_ = loopStarted.Swap(true)
-					close(startCh)
-					// No error generated after init and before start
-					return nil
+					return ErrUnableToStart
 				},
 			},
 			stopper: &stopper{
 				f: func() error {
-					if loopStarted.Load() {
-						// Loop already started, wait for close signal, or input channel closed
-						close(closeCh)
-					} else {
-						// Inited but loop not started
-						close(stopAfterInit)
-						close(closeCh)
-					}
-					// In both cases, Close are called
-					return <-closeErrCh
+					return nil
 				},
 			},
-			loopStarted: &loopStarted,
-			loopEnded:   &loopEnded,
-			reqCh:       controlReqCh,
-		}, nil
+			reqCh:    fsm.controlReqCh,
+			fsmState: &fsm.state,
+		}, initErrs // Return COMPLETE error array
 	}
+
+	// Initialization succeeded
+	return &Controller{
+		starter: &starter{
+			f: func() error {
+				close(fsm.startCh)
+				<-fsm.startDoneCh
+				// Wait for start errors and return first error if any
+				startErrs := <-fsm.startErrsCh
+				close(fsm.startErrsCh)
+				// Return first error if any occurred (controller can decide how to handle)
+				for _, err := range startErrs {
+					if err != nil {
+						return err
+					}
+				}
+				return nil
+			},
+		},
+		stopper: &stopper{
+			f: func() error {
+				if fsm.getState() == StateRunning ||
+					fsm.getState() == StatePaused ||
+					fsm.getState() == StateTerminating {
+					close(fsm.closeCh)
+					<-fsm.doneCh
+				} else if fsm.getState() == StateWaitingToStart {
+					close(fsm.stopAfterInit)
+					close(fsm.closeCh)
+					close(fsm.doneCh)
+				} else {
+					panic("impossible state: " + fsm.getState().String())
+				}
+				return <-fsm.closeErrCh
+			},
+		},
+		reqCh:    fsm.controlReqCh,
+		fsmState: &fsm.state,
+	}, nil
 }
 
-func singleGeneric1In0OutSyncProcessorLoop[IO Generic1In0OutSyncProcessorIO[I, In], I, In any, P Generic1In0OutSyncProcessor[In]](
-	processor P,
-	initErrCh chan error,
-	startCh chan struct{},
-	stopAfterInit chan struct{},
-	closeErrCh chan error,
-	input chan I,
-	output chan struct{},
-	controlReqCh chan *wrappedRequest,
-	closeCh chan struct{},
-	logger *slog.Logger,
-) {
-	var io IO
+func (fsm *fsmMultiProcessor1In0OutSync[_, _, _, _]) run() {
+	fsm.transitionTo(StateInitializing)
 
-	initErr := processor.Init()
-	if initErr != nil {
-		initErrCh <- initErr
+	// Initialize all sub-processor FSMs in parallel and start completion wrappers
+	subControllers := make([]*Controller, len(fsm.processors))
+	initErrs := make([]error, len(fsm.processors))
+
+	// Use WaitGroup to wait for ALL sub-processor initialization
+	var wg sync.WaitGroup
+	var errorDuringInit atomic.Bool
+	wg.Add(len(fsm.processors))
+
+	for i := range fsm.subProcessorFSMs {
+		go func(i int) {
+			defer wg.Done()
+			controller, err := fsm.subProcessorFSMs[i].Initialize()
+			subControllers[i] = controller
+			initErrs[i] = err
+			if err != nil {
+				errorDuringInit.Store(true)
+			}
+		}(i)
+	}
+	wg.Wait()
+
+	// Store the results for later use in Initialize()
+	fsm.subControllers = subControllers
+
+	fsm.initErrsCh <- initErrs
+	if errorDuringInit.Load() {
+		fsm.transitionTo(StateTerminated)
 		return
 	}
-	initErrCh <- nil
+	fsm.transitionTo(StateWaitingToStart)
 
+	// Wait for start signal or early stop
 	select {
-	case <-startCh:
-	case <-stopAfterInit:
-		logger.Info("Closing sub-processor after initialization and before start")
-		closeErrCh <- processor.Close()
+	case <-fsm.startCh:
+		// Start all sub-processors in parallel (like init pattern)
+		var wg sync.WaitGroup
+		var errorDuringStart atomic.Bool
+		startErrs := make([]error, len(fsm.subControllers))
+		wg.Add(len(fsm.subControllers))
+
+		for i, controller := range fsm.subControllers {
+			go func(i int, controller *Controller) {
+				defer wg.Done()
+				startErrs[i] = controller.Start()
+				if startErrs[i] != nil {
+					errorDuringStart.Store(true)
+				}
+			}(i, controller)
+		}
+		wg.Wait()
+
+		if errorDuringStart.Load() {
+			for i, err := range startErrs {
+				if err != nil {
+					fsm.logger.With("multiproc_index", i, "error", err).Error("Failed to start sub-processor")
+				}
+			}
+			fsm.startErrsCh <- startErrs
+			fsm.transitionTo(StateTerminated)
+			close(fsm.startDoneCh)
+			close(fsm.stopAfterInit)
+			return
+		}
+
+		if fsm.config.startPaused {
+			fsm.transitionTo(StatePaused)
+			fsm.logger.Info("Multiprocessor started in paused state")
+		} else {
+			fsm.transitionTo(StateRunning)
+			fsm.logger.Info("Multiprocessor started")
+		}
+		close(fsm.startDoneCh)
+		close(fsm.stopAfterInit)
+		fsm.startErrsCh <- startErrs
+	case <-fsm.stopAfterInit:
+		fsm.logger.Info("Closing multiprocessor after initialization and before start")
+		fsm.transitionTo(StateTerminating)
+		fsm.coordinatedShutdown(fsm.subControllers)
 		return
 	}
 
-	logger.Info("Sub-processor started")
+	fsm.processingLoop()
+	fsm.cleanup(fsm.subControllers)
+}
+
+func (fsm *fsmMultiProcessor1In0OutSync[_, _, _, _]) transitionTo(newState ProcessorState) {
+	oldState := fsm.getState()
+	fsm.setState(newState)
+	fsm.logger.Debug("MultiProcessor state transition", "from", oldState.String(), "to", newState.String())
+}
+
+func (fsm *fsmMultiProcessor1In0OutSync[_, _, _, _]) processingLoop() {
 LOOP:
 	for {
 		select {
-		case i := <-input:
-			in := io.AsInput(i)
-			err := processor.Process(in)
-			if err != nil {
-				panic(err)
+		case is, ok := <-fsm.inputsCh:
+			if !ok {
+				fsm.transitionTo(StateTerminating)
+				fsm.logger.Info("Input channel closed, stopping")
+				break LOOP
 			}
-			output <- struct{}{}
-		case ctlReq := <-controlReqCh:
-			ctlReq.res <- any(processor).(Controllable).OnControl(ctlReq.req)
-		case <-closeCh:
+			fsm.handleInputBatch(is)
+		case ctlReq := <-fsm.controlReqCh:
+			fsm.handleControlRequest(ctlReq)
+		case <-fsm.closeCh:
+			fsm.transitionTo(StateTerminating)
+			fsm.logger.Info("Close signal received, stopping")
 			break LOOP
 		}
 	}
+}
 
-	close(output)
+func (fsm *fsmMultiProcessor1In0OutSync[IO, I, _, _]) handleInputBatch(inputs []I) {
+	var io IO
 
-	closeErrCh <- processor.Close()
-	logger.Info("Sub-processor stopped")
+	switch fsm.getState() {
+	case StateRunning:
+		fsm.processBatch(inputs)
+	case StatePaused:
+		for _, i := range inputs {
+			io.ReleaseInput(i)
+		}
+	default:
+		panic("impossible state: " + fsm.getState().String())
+	}
+}
+
+func (fsm *fsmMultiProcessor1In0OutSync[IO, I, _, _]) processBatch(inputs []I) {
+	var io IO
+
+	if len(inputs) == 0 {
+		fsm.logger.Warn("Input batch is empty, dropping")
+		return
+	}
+
+	if len(inputs) != len(fsm.processors) {
+		fsm.logger.With("input_length", len(inputs), "processor_length", len(fsm.processors)).Warn("Input length mismatch, dropping")
+		for _, i := range inputs {
+			io.ReleaseInput(i)
+		}
+		return
+	}
+
+	// Distribute inputs to sub-processor FSMs in parallel
+	var wg sync.WaitGroup
+	wg.Add(len(inputs))
+
+	for j, input := range inputs {
+		go func(j int, input I) {
+			defer wg.Done()
+			fsm.subProcessorInputChs[j] <- input
+		}(j, input)
+	}
+	wg.Wait()
+}
+
+func (fsm *fsmMultiProcessor1In0OutSync[_, _, _, P]) handleControlRequest(ctlReq *wrappedRequest) {
+	switch ctlReq.req.(type) {
+	case pause:
+		if fsm.getState() == StateRunning {
+			fsm.transitionTo(StatePaused)
+			ctlReq.res <- nil
+			fsm.logger.Info("Multiprocessor paused")
+		} else if fsm.getState() == StatePaused {
+			ctlReq.res <- ErrAlreadyPaused
+		} else {
+			panic("impossible state: " + fsm.getState().String())
+		}
+	case resume:
+		if fsm.getState() == StatePaused {
+			fsm.transitionTo(StateRunning)
+			ctlReq.res <- nil
+			fsm.logger.Info("Multiprocessor resumed")
+		} else if fsm.getState() == StateRunning {
+			ctlReq.res <- ErrAlreadyRunning
+		} else {
+			panic("impossible state: " + fsm.getState().String())
+		}
+	case *MultiProcessorRequest:
+		if !fsm.allSupportControl {
+			ctlReq.res <- ErrControlNotSupported
+			return
+		}
+		multiReq := ctlReq.req.(*MultiProcessorRequest)
+		ctlReq.res <- any(fsm.processors[multiReq.I]).(Controllable).OnControl(multiReq.Req)
+	default:
+		if !fsm.allSupportControl {
+			ctlReq.res <- ErrControlNotSupported
+			return
+		}
+
+		// Broadcast control request to all sub-processors
+		var wg sync.WaitGroup
+		wg.Add(len(fsm.processors))
+		ctlErrs := make([]error, len(fsm.processors))
+		for i, processor := range fsm.processors {
+			go func(i int, processor P) {
+				defer wg.Done()
+				ctlErrs[i] = any(processor).(Controllable).OnControl(ctlReq.req)
+			}(i, processor)
+		}
+		wg.Wait()
+
+		var multierr error
+		for _, err := range ctlErrs {
+			if err != nil {
+				multierr = multierror.Append(multierr, err)
+			}
+		}
+		ctlReq.res <- multierr
+	}
+}
+
+func (fsm *fsmMultiProcessor1In0OutSync[_, _, _, _]) coordinatedShutdown(subControllers []*Controller) {
+	var wg sync.WaitGroup
+	wg.Add(len(subControllers))
+	closeErrs := make([]error, len(subControllers))
+
+	for i, controller := range subControllers {
+		go func(i int, controller *Controller) {
+			defer wg.Done()
+			closeErrs[i] = controller.Stop()
+		}(i, controller)
+	}
+	wg.Wait()
+
+	var multierr error
+	for _, err := range closeErrs {
+		if err != nil {
+			multierr = multierror.Append(multierr, err)
+		}
+	}
+	fsm.closeErrCh <- multierr
+	fsm.transitionTo(StateTerminated)
+}
+
+func (fsm *fsmMultiProcessor1In0OutSync[_, _, _, _]) cleanup(subControllers []*Controller) {
+	close(fsm.doneCh)
+	close(fsm.controlReqCh)
+
+	fsm.coordinatedShutdown(subControllers)
+	fsm.logger.Info("Multiprocessor stopped")
 }
