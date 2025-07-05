@@ -205,15 +205,15 @@ func (fsm *fsmNIn1OutAsync[_, _, _, _, _]) run() {
 
 		if fsm.config.startPaused {
 			fsm.transitionTo(StatePaused)
-			fsm.logger.Info("Processor started in paused state")
+			fsm.logger.Info(logProcessorStartedPaused)
 		} else {
 			fsm.transitionTo(StateRunning)
-			fsm.logger.Info("Processor started")
+			fsm.logger.Info(logProcessorStarted)
 		}
 		close(fsm.startDoneCh)
 		close(fsm.stopAfterInit)
 	case <-fsm.stopAfterInit:
-		fsm.logger.Info("Closing processor after initialization and before start")
+		fsm.logger.Info(logProcessorClosingAfterInit)
 		fsm.transitionTo(StateTerminating)
 		fsm.closeErrCh <- fsm.processor.Close()
 		fsm.transitionTo(StateTerminated)
@@ -228,7 +228,7 @@ func (fsm *fsmNIn1OutAsync[_, _, _, _, _]) run() {
 func (fsm *fsmNIn1OutAsync[_, _, _, _, _]) transitionTo(newState ProcessorState) {
 	oldState := fsm.getState()
 	fsm.setState(newState)
-	fsm.logger.Debug("State transition", "from", oldState.String(), "to", newState.String())
+	fsm.logger.Debug(logStateTransition, "from", oldState.String(), "to", newState.String())
 }
 
 func (fsm *fsmNIn1OutAsync[_, _, _, _, _]) processingLoop() {
@@ -238,14 +238,14 @@ LOOP:
 		case i, ok := <-fsm.fannedInputCh:
 			if !ok {
 				fsm.transitionTo(StateTerminating)
-				fsm.logger.Info("Input channel closed, stopping")
+				fsm.logger.Info(logInputChannelClosed)
 				break LOOP
 			}
 			fsm.handleInput(i)
 		case out, ok := <-fsm.processor.Output():
 			if !ok {
 				fsm.transitionTo(StateTerminating)
-				fsm.logger.Info("Processor output channel closed, stopping")
+				fsm.logger.Info(logOutputChannelClosed)
 				break LOOP
 			}
 			fsm.handleProcessorOutput(out)
@@ -253,7 +253,7 @@ LOOP:
 			fsm.handleControlRequest(ctlReq)
 		case <-fsm.closeCh:
 			fsm.transitionTo(StateTerminating)
-			fsm.logger.Info("Close signal received, stopping")
+			fsm.logger.Info(logCloseSignalReceived)
 			break LOOP
 		}
 	}
@@ -277,7 +277,7 @@ func (fsm *fsmNIn1OutAsync[IO, I, _, _, _]) processInput(input fannedInResult[I]
 
 	in := io.AsInput(input.t)
 	if err := fsm.processor.Process(input.index, in); err != nil {
-		fsm.logger.With("error", err).Error("Error encountered during processing, continuing")
+		fsm.logger.With("error", err).Error(logProcessingError)
 	}
 }
 
@@ -299,11 +299,11 @@ func (fsm *fsmNIn1OutAsync[IO, _, O, _, _]) handleOutput(output O) {
 		default:
 			select {
 			case oldOutput := <-fsm.outputCh:
-				fsm.logger.Warn("Output channel full, dropping the frontmost/oldest output")
+				fsm.logger.Warn(logOutputChannelFullDropOldest)
 				io.ReleaseOutput(oldOutput)
 				fsm.outputCh <- output
 			default:
-				fsm.logger.Warn("Output channel full, dropping current output")
+				fsm.logger.Warn(logOutputChannelFullDropCurrent)
 				io.ReleaseOutput(output)
 			}
 		}
@@ -316,7 +316,7 @@ func (fsm *fsmNIn1OutAsync[_, _, _, _, _]) handleControlRequest(ctlReq *wrappedR
 		if fsm.getState() == StateRunning {
 			fsm.transitionTo(StatePaused)
 			ctlReq.res <- nil
-			fsm.logger.Info("Processor paused")
+			fsm.logger.Info(logProcessorPaused)
 		} else if fsm.getState() == StatePaused {
 			ctlReq.res <- ErrAlreadyPaused
 		} else {
@@ -326,7 +326,7 @@ func (fsm *fsmNIn1OutAsync[_, _, _, _, _]) handleControlRequest(ctlReq *wrappedR
 		if fsm.getState() == StatePaused {
 			fsm.transitionTo(StateRunning)
 			ctlReq.res <- nil
-			fsm.logger.Info("Processor resumed")
+			fsm.logger.Info(logProcessorResumed)
 		} else if fsm.getState() == StateRunning {
 			ctlReq.res <- ErrAlreadyRunning
 		} else {
@@ -362,7 +362,7 @@ func (fsm *fsmNIn1OutAsync[IO, _, _, _, _]) cleanup() {
 
 	// Close the processor and report any error
 	fsm.closeErrCh <- fsm.processor.Close()
-	fsm.logger.Info("Processor stopped")
+	fsm.logger.Info(logProcessorStopped)
 
 	fsm.transitionTo(StateTerminated)
 }
