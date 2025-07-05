@@ -52,8 +52,8 @@ func (p *stopper) Stop() error {
 var requestTimeout = time.Second
 
 type (
-	pause                 struct{}
-	resume                struct{}
+	pause  struct{}
+	resume struct{}
 	// MultiProcessorRequest enables targeted control of specific processor instances within multi-processors.
 	// I specifies the processor index, Req contains the control message for that specific processor.
 	MultiProcessorRequest struct {
@@ -78,9 +78,10 @@ type Controller struct {
 	stopper *stopper
 
 	// Pause/resume & other control operations
-	loopStarted *atomic.Bool
-	loopEnded   *atomic.Bool
-	reqCh       chan *wrappedRequest
+	reqCh chan *wrappedRequest
+
+	// Tracks the current state of the processor
+	fsmState *atomic.Int32
 }
 
 func (c *Controller) sendRequest(req any) error {
@@ -89,11 +90,7 @@ func (c *Controller) sendRequest(req any) error {
 		res: make(chan error),
 	}
 
-	if !c.loopStarted.Load() {
-		return ErrProcessorNotRunning
-	}
-
-	if c.loopEnded.Load() {
+	if currentState := ProcessorState(c.fsmState.Load()); currentState != StateRunning && currentState != StatePaused {
 		return ErrProcessorNotRunning
 	}
 

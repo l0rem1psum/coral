@@ -460,6 +460,57 @@ func (p *CLibraryProcessor) Close() error {
 - **Blocking Operations**: C library blocking calls don't affect other processors
 - **Resource Isolation**: Each processor has independent C library state
 
+## Finite State Machine (FSM)
+
+All Coral processors are implemented using a unified Finite State Machine architecture that provides explicit state management, improved debuggability, and consistent lifecycle behavior across all processor types.
+
+### Processor Lifecycle States
+
+Every processor follows the same 7-state lifecycle, regardless of its input/output pattern (0→1, 1→1, N→1, M→N, etc.):
+
+```mermaid
+stateDiagram-v2
+    [*] --> StateCreated : FSM construction
+
+      StateCreated --> StateInitializing : run() starts
+
+      StateInitializing --> StateTerminated : processor.Init() fails
+      StateInitializing --> StateWaitingToStart : processor.Init() succeeds
+
+      StateWaitingToStart --> StateRunning : startCh closed (config.startPaused=false)
+      StateWaitingToStart --> StatePaused : startCh closed (config.startPaused=true)
+      StateWaitingToStart --> StateTerminating : stopAfterInit closed
+
+      StateRunning --> StatePaused : pause control request
+      StatePaused --> StateRunning : resume control request
+
+      StateRunning --> StateRunning : input received & processed
+      StateRunning --> StateRunning : custom control request
+      StatePaused --> StatePaused : input received (dropped)
+      StatePaused --> StatePaused : custom control request
+
+      StateRunning --> StateTerminating : input channel closed
+      StateRunning --> StateTerminating : closeCh closed
+      StatePaused --> StateTerminating : input channel closed
+      StatePaused --> StateTerminating : closeCh closed
+
+      StateTerminating --> StateTerminated : cleanup() completes
+
+      StateTerminated --> [*]
+```
+
+### State Descriptions
+
+| State | Description | Behavior |
+|-------|-------------|----------|
+| **`StateCreated`** | Initial state after FSM construction | Processor goroutine not yet started |
+| **`StateInitializing`** | Running `processor.Init()` | Initialization logic executing |
+| **`StateWaitingToStart`** | Init succeeded, waiting for start signal | Ready to begin processing |
+| **`StateRunning`** | Actively processing inputs | Data flows through processor |
+| **`StatePaused`** | Processing paused via control | Inputs dropped, no data processing |
+| **`StateTerminating`** | Shutting down, running cleanup | Final resource cleanup |
+| **`StateTerminated`** | Processor stopped, goroutine ended | No further operations possible |
+
 ## Contributing
 
 Contributions are welcome! Please feel free to submit issues, feature requests, or pull requests.
