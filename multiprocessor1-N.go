@@ -174,16 +174,17 @@ func (fsm *fsmMultiProcessor1InNOutSync[_, _, O, _, _, _]) Initialize() (*Contro
 			f: func() error {
 				close(fsm.startCh)
 				<-fsm.startDoneCh
-				// Wait for start errors and return first error if any
+				// Wait for start errors
 				startErrs := <-fsm.startErrsCh
 				close(fsm.startErrsCh)
-				// Return first error if any occurred
+
+				var multierr error
 				for _, err := range startErrs {
 					if err != nil {
-						return err
+						multierr = multierror.Append(multierr, err)
 					}
 				}
-				return nil
+				return multierr
 			},
 		},
 		stopper: &stopper{
