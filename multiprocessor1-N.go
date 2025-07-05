@@ -264,7 +264,7 @@ func (fsm *fsmMultiProcessor1InNOutSync[_, _, O, _, _, _]) run() {
 		if errorDuringStart.Load() {
 			for i, err := range startErrs {
 				if err != nil {
-					fsm.logger.With("multiproc_index", i, "error", err).Error("Failed to start sub-processor")
+					fsm.logger.With("multiproc_index", i, "error", err).Error(logSubProcessorStartFailed)
 				}
 			}
 			fsm.startErrsCh <- startErrs
@@ -276,16 +276,16 @@ func (fsm *fsmMultiProcessor1InNOutSync[_, _, O, _, _, _]) run() {
 
 		if fsm.config.startPaused {
 			fsm.transitionTo(StatePaused)
-			fsm.logger.Info("Multiprocessor started in paused state")
+			fsm.logger.Info(logMultiprocessorStartedPaused)
 		} else {
 			fsm.transitionTo(StateRunning)
-			fsm.logger.Info("Multiprocessor started")
+			fsm.logger.Info(logMultiprocessorStarted)
 		}
 		close(fsm.startDoneCh)
 		close(fsm.stopAfterInit)
 		fsm.startErrsCh <- startErrs
 	case <-fsm.stopAfterInit:
-		fsm.logger.Info("Closing multiprocessor after initialization and before start")
+		fsm.logger.Info(logMultiprocessorClosingAfterInit)
 		fsm.transitionTo(StateTerminating)
 		fsm.coordinatedShutdown(fsm.subControllers)
 		return
@@ -298,7 +298,7 @@ func (fsm *fsmMultiProcessor1InNOutSync[_, _, O, _, _, _]) run() {
 func (fsm *fsmMultiProcessor1InNOutSync[_, _, _, _, _, _]) transitionTo(newState ProcessorState) {
 	oldState := fsm.getState()
 	fsm.setState(newState)
-	fsm.logger.Debug("MultiProcessor state transition", "from", oldState.String(), "to", newState.String())
+	fsm.logger.Debug(logMultiStateTransition, "from", oldState.String(), "to", newState.String())
 }
 
 func (fsm *fsmMultiProcessor1InNOutSync[_, _, _, _, _, _]) processingLoop() {
@@ -308,7 +308,7 @@ LOOP:
 		case is, ok := <-fsm.inputsCh:
 			if !ok {
 				fsm.transitionTo(StateTerminating)
-				fsm.logger.Info("Input channel closed, stopping")
+				fsm.logger.Info(logInputChannelClosed)
 				break LOOP
 			}
 			fsm.handleInputBatch(is)
@@ -316,7 +316,7 @@ LOOP:
 			fsm.handleControlRequest(ctlReq)
 		case <-fsm.closeCh:
 			fsm.transitionTo(StateTerminating)
-			fsm.logger.Info("Close signal received, stopping")
+			fsm.logger.Info(logCloseSignalReceived)
 			break LOOP
 		}
 	}
@@ -341,12 +341,12 @@ func (fsm *fsmMultiProcessor1InNOutSync[IO, I, O, _, _, _]) processBatch(inputs 
 	var io IO
 
 	if len(inputs) == 0 {
-		fsm.logger.Warn("Input batch is empty, dropping")
+		fsm.logger.Warn(logInputBatchEmpty)
 		return
 	}
 
 	if len(inputs) != len(fsm.processors) {
-		fsm.logger.With("input_length", len(inputs), "processor_length", len(fsm.processors)).Warn("Input length mismatch, dropping")
+		fsm.logger.With("input_length", len(inputs), "processor_length", len(fsm.processors)).Warn(logInputLengthMismatch)
 		for _, i := range inputs {
 			io.ReleaseInput(i)
 		}
@@ -404,13 +404,13 @@ func (fsm *fsmMultiProcessor1InNOutSync[IO, _, O, _, _, _]) handleOutputBatches(
 				default:
 					select {
 					case oldOutputBatch := <-fsm.outputChs[i]:
-						fsm.logger.With("output_index", i).Warn("Output channel full, dropping oldest batch")
+						fsm.logger.With("output_index", i).Warn(logOutputChannelFullDropOldestBatch)
 						for _, o := range oldOutputBatch {
 							io.ReleaseOutput(o)
 						}
 						fsm.outputChs[i] <- outputBatch
 					default:
-						fsm.logger.With("output_index", i).Warn("Output channel full, dropping current batch")
+						fsm.logger.With("output_index", i).Warn(logOutputChannelFullDropCurrentBatch)
 						for _, o := range outputBatch {
 							io.ReleaseOutput(o)
 						}
@@ -428,7 +428,7 @@ func (fsm *fsmMultiProcessor1InNOutSync[_, _, _, _, _, P]) handleControlRequest(
 		if fsm.getState() == StateRunning {
 			fsm.transitionTo(StatePaused)
 			ctlReq.res <- nil
-			fsm.logger.Info("Multiprocessor paused")
+			fsm.logger.Info(logMultiprocessorPaused)
 		} else if fsm.getState() == StatePaused {
 			ctlReq.res <- ErrAlreadyPaused
 		} else {
@@ -438,7 +438,7 @@ func (fsm *fsmMultiProcessor1InNOutSync[_, _, _, _, _, P]) handleControlRequest(
 		if fsm.getState() == StatePaused {
 			fsm.transitionTo(StateRunning)
 			ctlReq.res <- nil
-			fsm.logger.Info("Multiprocessor resumed")
+			fsm.logger.Info(logMultiprocessorResumed)
 		} else if fsm.getState() == StateRunning {
 			ctlReq.res <- ErrAlreadyRunning
 		} else {
@@ -511,7 +511,7 @@ func (fsm *fsmMultiProcessor1InNOutSync[_, _, _, _, _, _]) cleanup(subController
 	close(fsm.controlReqCh)
 
 	fsm.coordinatedShutdown(subControllers)
-	fsm.logger.Info("Multiprocessor stopped")
+	fsm.logger.Info(logMultiprocessorStopped)
 }
 
 func transpose[T any](slice [][]T) [][]T {
