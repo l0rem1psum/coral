@@ -68,11 +68,9 @@ type fsm1InNOutSync[IO Generic1InNOutSyncProcessorIO[I, O, In, Out], I, O, In, O
 	config config
 	logger *slog.Logger
 
-	// External control support
 	supportsControl bool
 	controllable    Controllable
 
-	// Channels for communication
 	inputCh       <-chan I
 	outputChs     []chan O
 	closeCh       chan struct{}
@@ -124,12 +122,9 @@ func newFSM1InNOutSync[
 	return fsm
 }
 
-// Initialize starts the FSM and returns the Controller and output channels
 func (fsm *fsm1InNOutSync[_, _, O, _, _]) Initialize() (*Controller, []chan O, error) {
-	// Start the processor goroutine
 	go fsm.run()
 
-	// Wait for initialization to complete
 	err := <-fsm.initErrCh
 	close(fsm.initErrCh)
 
@@ -232,14 +227,12 @@ func (fsm *fsm1InNOutSync[_, _, _, _, _]) run() {
 	fsm.cleanup()
 }
 
-// transitionTo changes the FSM state atomically and logs the transition
 func (fsm *fsm1InNOutSync[_, _, _, _, _]) transitionTo(newState ProcessorState) {
 	oldState := fsm.getState()
 	fsm.setState(newState)
 	fsm.logger.Debug("State transition", "from", oldState.String(), "to", newState.String())
 }
 
-// processingLoop handles the main processing logic
 func (fsm *fsm1InNOutSync[_, _, _, _, _]) processingLoop() {
 LOOP:
 	for {
@@ -261,7 +254,6 @@ LOOP:
 	}
 }
 
-// handleInput processes a single input item based on current state
 func (fsm *fsm1InNOutSync[IO, I, _, _, _]) handleInput(i I) {
 	var io IO
 
@@ -275,7 +267,6 @@ func (fsm *fsm1InNOutSync[IO, I, _, _, _]) handleInput(i I) {
 	}
 }
 
-// processInput handles the actual data transformation
 func (fsm *fsm1InNOutSync[IO, I, O, In, Out]) processInput(i I) {
 	var io IO
 
@@ -293,7 +284,6 @@ func (fsm *fsm1InNOutSync[IO, I, O, In, Out]) processInput(i I) {
 	fsm.handleOutputs(uos)
 }
 
-// handleOutputs manages concurrent delivery to multiple channels with backpressure
 func (fsm *fsm1InNOutSync[IO, _, O, _, _]) handleOutputs(outputs []O) {
 	var wg sync.WaitGroup
 	wg.Add(len(outputs))
@@ -308,7 +298,6 @@ func (fsm *fsm1InNOutSync[IO, _, O, _, _]) handleOutputs(outputs []O) {
 	wg.Wait()
 }
 
-// deliverToChannel handles backpressure for a specific output channel
 func (fsm *fsm1InNOutSync[IO, _, O, _, _]) deliverToChannel(channelIndex int, output O) {
 	var io IO
 
@@ -331,7 +320,6 @@ func (fsm *fsm1InNOutSync[IO, _, O, _, _]) deliverToChannel(channelIndex int, ou
 	}
 }
 
-// handleControlRequest processes control messages (pause, resume, custom)
 func (fsm *fsm1InNOutSync[_, _, _, _, _]) handleControlRequest(ctlReq *wrappedRequest) {
 	switch ctlReq.req.(type) {
 	case pause:

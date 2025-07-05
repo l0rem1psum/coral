@@ -51,7 +51,7 @@ type fsmMultiProcessor1InNOutSync[IO Generic1InNOutSyncProcessorIO[I, O, In, Out
 	allSupportControl bool
 
 	inputsCh  <-chan []I
-	outputChs []chan []O // Multiple output channels for fan-out
+	outputChs []chan []O
 	closeCh   chan struct{}
 	doneCh    chan struct{}
 
@@ -63,10 +63,8 @@ type fsmMultiProcessor1InNOutSync[IO Generic1InNOutSyncProcessorIO[I, O, In, Out
 	stopAfterInit chan struct{}
 	controlReqCh  chan *wrappedRequest
 
-	// Sub-processor coordination
 	subProcessorInputChs []chan I
 
-	// Results from parallel initialization
 	subControllers []*Controller
 	subOutputChans [][]chan O
 }
@@ -85,7 +83,6 @@ func newFSMMultiProcessor1InNOutSync[IO Generic1InNOutSyncProcessorIO[I, O, In, 
 		}
 	}
 
-	// Create individual processor FSMs
 	subProcessorFSMs := make([]*fsm1InNOutSync[IO, I, O, In, Out], len(processors))
 	subProcessorInputChs := make([]chan I, len(processors))
 
@@ -131,14 +128,11 @@ func newFSMMultiProcessor1InNOutSync[IO Generic1InNOutSyncProcessorIO[I, O, In, 
 }
 
 func (fsm *fsmMultiProcessor1InNOutSync[_, _, O, _, _, _]) Initialize() (*Controller, []chan []O, []error) {
-	// Start the main coordinator goroutine
 	go fsm.run()
 
-	// Wait for initialization to complete
 	initErrs := <-fsm.initErrsCh
 	close(fsm.initErrsCh)
 
-	// Check if any initialization failed
 	errorDuringInit := false
 	for _, err := range initErrs {
 		if err != nil {
@@ -148,7 +142,7 @@ func (fsm *fsmMultiProcessor1InNOutSync[_, _, O, _, _, _]) Initialize() (*Contro
 	}
 
 	if errorDuringInit {
-		// Initialization failed - return ALL errors as original did
+		// Initialization failed
 		closeMultipleChans(fsm.outputChs...)
 		close(fsm.closeCh)
 		close(fsm.doneCh)
@@ -171,7 +165,7 @@ func (fsm *fsmMultiProcessor1InNOutSync[_, _, O, _, _, _]) Initialize() (*Contro
 			},
 			reqCh:    fsm.controlReqCh,
 			fsmState: &fsm.state,
-		}, nil, initErrs // Return COMPLETE error array
+		}, nil, initErrs
 	}
 
 	// Initialization succeeded
@@ -183,7 +177,7 @@ func (fsm *fsmMultiProcessor1InNOutSync[_, _, O, _, _, _]) Initialize() (*Contro
 				// Wait for start errors and return first error if any
 				startErrs := <-fsm.startErrsCh
 				close(fsm.startErrsCh)
-				// Return first error if any occurred (controller can decide how to handle)
+				// Return first error if any occurred
 				for _, err := range startErrs {
 					if err != nil {
 						return err
@@ -218,12 +212,10 @@ func (fsm *fsmMultiProcessor1InNOutSync[_, _, O, _, _, _]) Initialize() (*Contro
 func (fsm *fsmMultiProcessor1InNOutSync[_, _, O, _, _, _]) run() {
 	fsm.transitionTo(StateInitializing)
 
-	// Initialize all sub-processor FSMs in parallel
 	subControllers := make([]*Controller, len(fsm.processors))
 	subOutputChans := make([][]chan O, len(fsm.processors))
 	initErrs := make([]error, len(fsm.processors))
 
-	// Use WaitGroup to wait for ALL sub-processor initialization
 	var wg sync.WaitGroup
 	var errorDuringInit atomic.Bool
 	wg.Add(len(fsm.processors))
@@ -242,7 +234,6 @@ func (fsm *fsmMultiProcessor1InNOutSync[_, _, O, _, _, _]) run() {
 	}
 	wg.Wait()
 
-	// Store the results for later use in Initialize()
 	fsm.subControllers = subControllers
 	fsm.subOutputChans = subOutputChans
 
@@ -256,7 +247,7 @@ func (fsm *fsmMultiProcessor1InNOutSync[_, _, O, _, _, _]) run() {
 	// Wait for start signal or early stop
 	select {
 	case <-fsm.startCh:
-		// Start all sub-processors in parallel (like init pattern)
+		// Start all sub-processors in parallel
 		var wg sync.WaitGroup
 		var errorDuringStart atomic.Bool
 		startErrs := make([]error, len(fsm.subControllers))
@@ -365,7 +356,6 @@ func (fsm *fsmMultiProcessor1InNOutSync[IO, I, O, _, _, _]) processBatch(inputs 
 		return
 	}
 
-	// Distribute inputs to sub-processor FSMs and collect outputs in parallel
 	var wg sync.WaitGroup
 	wg.Add(len(inputs))
 	outputs := make([][]O, len(inputs))

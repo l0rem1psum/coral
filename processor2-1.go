@@ -72,13 +72,11 @@ type fsm2In1OutAsync[IO Generic2In1OutAsyncProcessorIO[I1, I2, O, In1, In2, Out]
 	config config
 	logger *slog.Logger
 
-	// External control support
 	supportsControl bool
 	controllable    Controllable
 
-	// Channels for communication - CRITICAL: dual input channels
-	input1Ch      <-chan I1 // First input channel
-	input2Ch      <-chan I2 // Second input channel
+	input1Ch      <-chan I1
+	input2Ch      <-chan I2
 	outputCh      chan O
 	closeCh       chan struct{}
 	doneCh        chan struct{}
@@ -97,8 +95,8 @@ func newFSM2In1OutAsync[
 	processor Generic2In1OutAsyncProcessor[In1, In2, Out],
 	config config,
 	logger *slog.Logger,
-	input1Ch <-chan I1, // First input channel
-	input2Ch <-chan I2, // Second input channel
+	input1Ch <-chan I1,
+	input2Ch <-chan I2,
 ) *fsm2In1OutAsync[IO, I1, I2, O, In1, In2, Out] {
 	controllable, supportsControl := processor.(Controllable)
 
@@ -126,12 +124,9 @@ func newFSM2In1OutAsync[
 	return fsm
 }
 
-// Initialize starts the FSM and returns the Controller and output channel
 func (fsm *fsm2In1OutAsync[_, _, _, O, _, _, _]) Initialize() (*Controller, chan O, error) {
-	// Start the processor goroutine
 	go fsm.run()
 
-	// Wait for initialization to complete
 	err := <-fsm.initErrCh
 	close(fsm.initErrCh)
 
@@ -234,14 +229,12 @@ func (fsm *fsm2In1OutAsync[_, _, _, _, _, _, _]) run() {
 	fsm.cleanup()
 }
 
-// transitionTo changes the FSM state atomically and logs the transition
 func (fsm *fsm2In1OutAsync[_, _, _, _, _, _, _]) transitionTo(newState ProcessorState) {
 	oldState := fsm.getState()
 	fsm.setState(newState)
 	fsm.logger.Debug("State transition", "from", oldState.String(), "to", newState.String())
 }
 
-// processingLoop handles the main processing logic with dual input streams + async output
 func (fsm *fsm2In1OutAsync[_, _, _, _, _, _, _]) processingLoop() {
 LOOP:
 	for {
@@ -260,7 +253,7 @@ LOOP:
 				break LOOP
 			}
 			fsm.handleInput2(i2)
-		case out, ok := <-fsm.processor.Output(): // Async output from processor
+		case out, ok := <-fsm.processor.Output():
 			if !ok {
 				fsm.transitionTo(StateTerminating)
 				fsm.logger.Info("Processor output channel closed, stopping")
@@ -277,7 +270,6 @@ LOOP:
 	}
 }
 
-// handleInput1 processes first input stream based on current state
 func (fsm *fsm2In1OutAsync[IO, I1, _, _, _, _, _]) handleInput1(input I1) {
 	var io IO
 
@@ -291,7 +283,6 @@ func (fsm *fsm2In1OutAsync[IO, I1, _, _, _, _, _]) handleInput1(input I1) {
 	}
 }
 
-// handleInput2 processes second input stream based on current state
 func (fsm *fsm2In1OutAsync[IO, _, I2, _, _, _, _]) handleInput2(input I2) {
 	var io IO
 
@@ -305,7 +296,6 @@ func (fsm *fsm2In1OutAsync[IO, _, I2, _, _, _, _]) handleInput2(input I2) {
 	}
 }
 
-// processInput1 handles the actual first input processing (async)
 func (fsm *fsm2In1OutAsync[IO, I1, _, _, _, _, _]) processInput1(input I1) {
 	var io IO
 
@@ -315,7 +305,6 @@ func (fsm *fsm2In1OutAsync[IO, I1, _, _, _, _, _]) processInput1(input I1) {
 	}
 }
 
-// processInput2 handles the actual second input processing (async)
 func (fsm *fsm2In1OutAsync[IO, _, I2, _, _, _, _]) processInput2(input I2) {
 	var io IO
 
@@ -325,7 +314,6 @@ func (fsm *fsm2In1OutAsync[IO, _, I2, _, _, _, _]) processInput2(input I2) {
 	}
 }
 
-// handleProcessorOutput manages output from the processor's async output channel
 func (fsm *fsm2In1OutAsync[IO, _, _, O, _, _, Out]) handleProcessorOutput(out Out) {
 	var io IO
 
@@ -333,7 +321,6 @@ func (fsm *fsm2In1OutAsync[IO, _, _, O, _, _, Out]) handleProcessorOutput(out Ou
 	fsm.handleOutput(uo)
 }
 
-// handleOutput manages backpressure and output delivery
 func (fsm *fsm2In1OutAsync[IO, _, _, O, _, _, _]) handleOutput(output O) {
 	var io IO
 
@@ -356,7 +343,6 @@ func (fsm *fsm2In1OutAsync[IO, _, _, O, _, _, _]) handleOutput(output O) {
 	}
 }
 
-// handleControlRequest processes control messages (pause, resume, custom)
 func (fsm *fsm2In1OutAsync[_, _, _, _, _, _, _]) handleControlRequest(ctlReq *wrappedRequest) {
 	switch ctlReq.req.(type) {
 	case pause:

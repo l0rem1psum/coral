@@ -59,11 +59,9 @@ type fsm0In1OutSync[IO Generic0In1OutSyncProcessorIO[O, Out], O, Out any] struct
 	config config
 	logger *slog.Logger
 
-	// External control support
 	supportsControl bool
 	controllable    Controllable
 
-	// Channels for communication (no input channel for generator)
 	outputCh      chan O
 	closeCh       chan struct{}
 	doneCh        chan struct{}
@@ -107,12 +105,9 @@ func newFSM0In1OutSync[
 	return fsm
 }
 
-// Initialize starts the FSM and returns the Controller and output channel
 func (fsm *fsm0In1OutSync[_, O, _]) Initialize() (*Controller, chan O, error) {
-	// Start the processor goroutine
 	go fsm.run()
 
-	// Wait for initialization to complete
 	err := <-fsm.initErrCh
 	close(fsm.initErrCh)
 
@@ -215,24 +210,20 @@ func (fsm *fsm0In1OutSync[_, _, _]) run() {
 	fsm.cleanup()
 }
 
-// transitionTo changes the FSM state atomically and logs the transition
 func (fsm *fsm0In1OutSync[_, _, _]) transitionTo(newState ProcessorState) {
 	oldState := fsm.getState()
 	fsm.setState(newState)
 	fsm.logger.Debug("State transition", "from", oldState.String(), "to", newState.String())
 }
 
-// processingLoop handles the main processing logic (generator pattern)
 func (fsm *fsm0In1OutSync[_, _, _]) processingLoop() {
 LOOP:
 	for {
 		select {
 		default:
-			// Generator pattern: continuously produce output when running
 			if fsm.getState() == StateRunning {
 				fsm.generateOutput()
 			}
-			// Continue loop - no blocking on default case
 		case ctlReq := <-fsm.controlReqCh:
 			fsm.handleControlRequest(ctlReq)
 		case <-fsm.closeCh:
@@ -243,7 +234,6 @@ LOOP:
 	}
 }
 
-// generateOutput produces and handles a single output
 func (fsm *fsm0In1OutSync[IO, _, _]) generateOutput() {
 	var io IO
 
@@ -257,7 +247,6 @@ func (fsm *fsm0In1OutSync[IO, _, _]) generateOutput() {
 	fsm.handleOutput(uo)
 }
 
-// handleOutput manages backpressure and output delivery
 func (fsm *fsm0In1OutSync[IO, O, _]) handleOutput(output O) {
 	var io IO
 
@@ -280,7 +269,6 @@ func (fsm *fsm0In1OutSync[IO, O, _]) handleOutput(output O) {
 	}
 }
 
-// handleControlRequest processes control messages (pause, resume, custom)
 func (fsm *fsm0In1OutSync[_, _, _]) handleControlRequest(ctlReq *wrappedRequest) {
 	switch ctlReq.req.(type) {
 	case pause:
@@ -387,11 +375,9 @@ type fsm0In1OutAsync[IO Generic0In1OutAsyncProcessorIO[O, Out], O, Out any] stru
 	config config
 	logger *slog.Logger
 
-	// External control support
 	supportsControl bool
 	controllable    Controllable
 
-	// Channels for communication (no input channel for async generator)
 	outputCh      chan O
 	closeCh       chan struct{}
 	doneCh        chan struct{}
@@ -437,12 +423,9 @@ func newFSM0In1OutAsync[
 	return fsm
 }
 
-// Initialize starts the FSM and returns the Controller and output channel
 func (fsm *fsm0In1OutAsync[_, O, _]) Initialize() (*Controller, chan O, error) {
-	// Start the processor goroutine
 	go fsm.run()
 
-	// Wait for initialization to complete
 	err := <-fsm.initErrCh
 	close(fsm.initErrCh)
 
@@ -523,7 +506,6 @@ func (fsm *fsm0In1OutAsync[_, _, _]) run() {
 	// Wait for start signal or early stop
 	select {
 	case <-fsm.startCh:
-		// Start the async processor
 		startErr := fsm.processor.Start()
 		if startErr != nil {
 			fsm.startErrCh <- startErr
@@ -554,14 +536,12 @@ func (fsm *fsm0In1OutAsync[_, _, _]) run() {
 	fsm.cleanup()
 }
 
-// transitionTo changes the FSM state atomically and logs the transition
 func (fsm *fsm0In1OutAsync[_, _, _]) transitionTo(newState ProcessorState) {
 	oldState := fsm.getState()
 	fsm.setState(newState)
 	fsm.logger.Debug("State transition", "from", oldState.String(), "to", newState.String())
 }
 
-// processingLoop handles the main processing logic with processor output monitoring
 func (fsm *fsm0In1OutAsync[_, _, _]) processingLoop() {
 LOOP:
 	for {
@@ -583,7 +563,6 @@ LOOP:
 	}
 }
 
-// handleProcessorOutput processes output from the processor's Output() channel
 func (fsm *fsm0In1OutAsync[IO, _, Out]) handleProcessorOutput(out Out) {
 	var io IO
 
@@ -600,7 +579,6 @@ func (fsm *fsm0In1OutAsync[IO, _, Out]) handleProcessorOutput(out Out) {
 	}
 }
 
-// handleOutput manages backpressure and output delivery
 func (fsm *fsm0In1OutAsync[IO, O, _]) handleOutput(output O) {
 	var io IO
 
@@ -623,7 +601,6 @@ func (fsm *fsm0In1OutAsync[IO, O, _]) handleOutput(output O) {
 	}
 }
 
-// handleControlRequest processes control messages (pause, resume, custom)
 func (fsm *fsm0In1OutAsync[_, _, _]) handleControlRequest(ctlReq *wrappedRequest) {
 	switch ctlReq.req.(type) {
 	case pause:

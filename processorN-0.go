@@ -59,11 +59,9 @@ type fsmNIn0OutAsync[IO GenericNIn0OutAsyncProcessorIO[I, In], I, In any] struct
 	config config
 	logger *slog.Logger
 
-	// External control support
 	supportsControl bool
 	controllable    Controllable
 
-	// Channels for communication (no output channel for sink)
 	inputChs      []<-chan I
 	fannedInputCh <-chan fannedInResult[I]
 	closeCh       chan struct{}
@@ -109,12 +107,9 @@ func newFSMNIn0OutAsync[
 	return fsm
 }
 
-// Initialize starts the FSM and returns the Controller
 func (fsm *fsmNIn0OutAsync[_, _, _]) Initialize() (*Controller, error) {
-	// Start the processor goroutine
 	go fsm.run()
 
-	// Wait for initialization to complete
 	err := <-fsm.initErrCh
 	close(fsm.initErrCh)
 
@@ -222,14 +217,12 @@ func (fsm *fsmNIn0OutAsync[_, _, _]) run() {
 	fsm.cleanup()
 }
 
-// transitionTo changes the FSM state atomically and logs the transition
 func (fsm *fsmNIn0OutAsync[_, _, _]) transitionTo(newState ProcessorState) {
 	oldState := fsm.getState()
 	fsm.setState(newState)
 	fsm.logger.Debug("State transition", "from", oldState.String(), "to", newState.String())
 }
 
-// processingLoop handles the main processing logic (input only, no output)
 func (fsm *fsmNIn0OutAsync[_, _, _]) processingLoop() {
 LOOP:
 	for {
@@ -251,7 +244,6 @@ LOOP:
 	}
 }
 
-// handleInput processes a single fanned-in input item based on current state
 func (fsm *fsmNIn0OutAsync[IO, I, _]) handleInput(input fannedInResult[I]) {
 	var io IO
 
@@ -265,7 +257,6 @@ func (fsm *fsmNIn0OutAsync[IO, I, _]) handleInput(input fannedInResult[I]) {
 	}
 }
 
-// processInput handles the actual data processing (sink - no output)
 func (fsm *fsmNIn0OutAsync[IO, I, _]) processInput(input fannedInResult[I]) {
 	var io IO
 
@@ -275,7 +266,6 @@ func (fsm *fsmNIn0OutAsync[IO, I, _]) processInput(input fannedInResult[I]) {
 	}
 }
 
-// handleControlRequest processes control messages (pause, resume, custom)
 func (fsm *fsmNIn0OutAsync[_, _, _]) handleControlRequest(ctlReq *wrappedRequest) {
 	switch ctlReq.req.(type) {
 	case pause:

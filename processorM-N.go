@@ -70,12 +70,10 @@ type fsmMInNOutSync[IO GenericMInNOutSyncProcessorIO[I, O, In, Out], I, O, In, O
 	config config
 	logger *slog.Logger
 
-	// External control support
 	supportsControl bool
 	controllable    Controllable
 
-	// Channels for communication - CRITICAL: input is batched []I
-	inputCh       <-chan []I // Batched input channel
+	inputCh       <-chan []I
 	outputChs     []chan O
 	closeCh       chan struct{}
 	doneCh        chan struct{}
@@ -94,7 +92,7 @@ func newFSMMInNOutSync[
 	processor GenericMInNOutSyncProcessor[In, Out],
 	config config,
 	logger *slog.Logger,
-	inputCh <-chan []I, // Batched input channel
+	inputCh <-chan []I,
 ) *fsmMInNOutSync[IO, I, O, In, Out] {
 	controllable, supportsControl := processor.(Controllable)
 
@@ -126,12 +124,9 @@ func newFSMMInNOutSync[
 	return fsm
 }
 
-// Initialize starts the FSM and returns the Controller and output channels
 func (fsm *fsmMInNOutSync[_, _, O, _, _]) Initialize() (*Controller, []chan O, error) {
-	// Start the processor goroutine
 	go fsm.run()
 
-	// Wait for initialization to complete
 	err := <-fsm.initErrCh
 	close(fsm.initErrCh)
 
@@ -234,25 +229,23 @@ func (fsm *fsmMInNOutSync[_, _, _, _, _]) run() {
 	fsm.cleanup()
 }
 
-// transitionTo changes the FSM state atomically and logs the transition
 func (fsm *fsmMInNOutSync[_, _, _, _, _]) transitionTo(newState ProcessorState) {
 	oldState := fsm.getState()
 	fsm.setState(newState)
 	fsm.logger.Debug("State transition", "from", oldState.String(), "to", newState.String())
 }
 
-// processingLoop handles the main processing logic
 func (fsm *fsmMInNOutSync[_, _, _, _, _]) processingLoop() {
 LOOP:
 	for {
 		select {
-		case inputBatch, ok := <-fsm.inputCh: // CRITICAL: receiving batched input []I
+		case inputBatch, ok := <-fsm.inputCh:
 			if !ok {
 				fsm.transitionTo(StateTerminating)
 				fsm.logger.Info("Input channel closed, stopping")
 				break LOOP
 			}
-			fsm.handleInputBatch(inputBatch) // Handle batch, not single input
+			fsm.handleInputBatch(inputBatch)
 		case ctlReq := <-fsm.controlReqCh:
 			fsm.handleControlRequest(ctlReq)
 		case <-fsm.closeCh:
@@ -263,7 +256,6 @@ LOOP:
 	}
 }
 
-// handleInputBatch processes a batch of input items based on current state
 func (fsm *fsmMInNOutSync[IO, I, _, _, _]) handleInputBatch(inputBatch []I) {
 	var io IO
 
@@ -279,7 +271,6 @@ func (fsm *fsmMInNOutSync[IO, I, _, _, _]) handleInputBatch(inputBatch []I) {
 	}
 }
 
-// processBatch handles the actual batch transformation
 func (fsm *fsmMInNOutSync[IO, I, O, In, Out]) processBatch(inputBatch []I) {
 	var io IO
 
@@ -296,7 +287,6 @@ func (fsm *fsmMInNOutSync[IO, I, O, In, Out]) processBatch(inputBatch []I) {
 	fsm.handleOutputs(outputsAdapted)
 }
 
-// handleOutputs manages concurrent delivery to multiple channels with backpressure
 func (fsm *fsmMInNOutSync[IO, _, O, _, _]) handleOutputs(outputs []O) {
 	var wg sync.WaitGroup
 	wg.Add(len(outputs))
@@ -311,7 +301,6 @@ func (fsm *fsmMInNOutSync[IO, _, O, _, _]) handleOutputs(outputs []O) {
 	wg.Wait()
 }
 
-// deliverToChannel handles backpressure for a specific output channel
 func (fsm *fsmMInNOutSync[IO, _, O, _, _]) deliverToChannel(channelIndex int, output O) {
 	var io IO
 
@@ -334,7 +323,6 @@ func (fsm *fsmMInNOutSync[IO, _, O, _, _]) deliverToChannel(channelIndex int, ou
 	}
 }
 
-// handleControlRequest processes control messages (pause, resume, custom)
 func (fsm *fsmMInNOutSync[_, _, _, _, _]) handleControlRequest(ctlReq *wrappedRequest) {
 	switch ctlReq.req.(type) {
 	case pause:
