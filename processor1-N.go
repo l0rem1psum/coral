@@ -55,8 +55,7 @@ func InitializeGeneric1InNOutSyncProcessor[IO Generic1InNOutSyncProcessorIO[I, O
 	}
 
 	return func(input <-chan I) (*Controller, []chan O, error) {
-		fsm := newFSM1InNOutSync[IO](processor, config, logger, input)
-		return fsm.Initialize()
+		return newFSM1InNOutSync[IO](processor, config, logger, input).start()
 	}
 }
 
@@ -122,7 +121,7 @@ func newFSM1InNOutSync[
 	return fsm
 }
 
-func (fsm *fsm1InNOutSync[_, _, O, _, _]) Initialize() (*Controller, []chan O, error) {
+func (fsm *fsm1InNOutSync[_, _, O, _, _]) start() (*Controller, []chan O, error) {
 	go fsm.run()
 
 	err := <-fsm.initErrCh

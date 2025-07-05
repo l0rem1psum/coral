@@ -59,8 +59,7 @@ func InitializeGeneric2In1OutAsyncProcessor[IO Generic2In1OutAsyncProcessorIO[I1
 	}
 
 	return func(input1 <-chan I1, input2 <-chan I2) (*Controller, chan O, error) {
-		fsm := newFSM2In1OutAsync[IO](processor, config, logger, input1, input2)
-		return fsm.Initialize()
+		return newFSM2In1OutAsync[IO](processor, config, logger, input1, input2).start()
 	}
 }
 
@@ -124,7 +123,7 @@ func newFSM2In1OutAsync[
 	return fsm
 }
 
-func (fsm *fsm2In1OutAsync[_, _, _, O, _, _, _]) Initialize() (*Controller, chan O, error) {
+func (fsm *fsm2In1OutAsync[_, _, _, O, _, _, _]) start() (*Controller, chan O, error) {
 	go fsm.run()
 
 	err := <-fsm.initErrCh

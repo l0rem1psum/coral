@@ -46,8 +46,7 @@ func InitializeGenericNIn0OutAsyncProcessor[IO GenericNIn0OutAsyncProcessorIO[I,
 	}
 
 	return func(inputs []<-chan I) (*Controller, error) {
-		fsm := newFSMNIn0OutAsync[IO](processor, config, logger, inputs)
-		return fsm.Initialize()
+		return newFSMNIn0OutAsync[IO](processor, config, logger, inputs).start()
 	}
 }
 
@@ -107,7 +106,7 @@ func newFSMNIn0OutAsync[
 	return fsm
 }
 
-func (fsm *fsmNIn0OutAsync[_, _, _]) Initialize() (*Controller, error) {
+func (fsm *fsmNIn0OutAsync[_, _, _]) start() (*Controller, error) {
 	go fsm.run()
 
 	err := <-fsm.initErrCh

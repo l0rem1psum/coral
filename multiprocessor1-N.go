@@ -35,8 +35,7 @@ func InitializeGeneric1InNOutSyncMultiProcessor[IO Generic1InNOutSyncProcessorIO
 	}
 
 	return func(inputs <-chan []I) (*Controller, []chan []O, []error) {
-		fsm := newFSMMultiProcessor1InNOutSync[IO](processors, config, logger, inputs)
-		return fsm.Initialize()
+		return newFSMMultiProcessor1InNOutSync[IO](processors, config, logger, inputs).start()
 	}
 }
 
@@ -121,7 +120,7 @@ func newFSMMultiProcessor1InNOutSync[IO Generic1InNOutSyncProcessorIO[I, O, In, 
 	return fsm
 }
 
-func (fsm *fsmMultiProcessor1InNOutSync[_, _, O, _, _, _]) Initialize() (*Controller, []chan []O, []error) {
+func (fsm *fsmMultiProcessor1InNOutSync[_, _, O, _, _, _]) start() (*Controller, []chan []O, []error) {
 	go fsm.run()
 
 	initErrs := <-fsm.initErrsCh
@@ -218,7 +217,7 @@ func (fsm *fsmMultiProcessor1InNOutSync[_, _, O, _, _, _]) run() {
 	for i := range fsm.subProcessorFSMs {
 		go func(i int) {
 			defer wg.Done()
-			controller, outputChans, err := fsm.subProcessorFSMs[i].Initialize()
+			controller, outputChans, err := fsm.subProcessorFSMs[i].start()
 			subControllers[i] = controller
 			subOutputChans[i] = outputChans
 			initErrs[i] = err
