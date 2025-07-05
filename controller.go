@@ -78,12 +78,10 @@ type Controller struct {
 	stopper *stopper
 
 	// Pause/resume & other control operations
-	loopStarted *atomic.Bool
-	loopEnded   *atomic.Bool
-	reqCh       chan *wrappedRequest
+	reqCh chan *wrappedRequest
 
-	// Optional FSM state reference for improved state management
-	fsmState *atomic.Int32 // When non-nil, used instead of loopStarted/loopEnded
+	// Tracks the current state of the processor
+	fsmState *atomic.Int32
 }
 
 func (c *Controller) sendRequest(req any) error {
@@ -92,22 +90,8 @@ func (c *Controller) sendRequest(req any) error {
 		res: make(chan error),
 	}
 
-	// Use FSM state if available, otherwise fall back to atomic booleans
-	if c.fsmState != nil {
-		// Check FSM state directly to determine if processor is running
-		currentState := ProcessorState(c.fsmState.Load())
-		if currentState != StateRunning && currentState != StatePaused {
-			return ErrProcessorNotRunning
-		}
-	} else {
-		// Legacy atomic boolean check
-		if !c.loopStarted.Load() {
-			return ErrProcessorNotRunning
-		}
-
-		if c.loopEnded.Load() {
-			return ErrProcessorNotRunning
-		}
+	if currentState := ProcessorState(c.fsmState.Load()); currentState != StateRunning && currentState != StatePaused {
+		return ErrProcessorNotRunning
 	}
 
 	select {
