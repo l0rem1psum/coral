@@ -64,13 +64,11 @@ func InitializeGenericMInNOutSyncProcessor[IO GenericMInNOutSyncProcessorIO[I, O
 type fsmMInNOutSync[IO GenericMInNOutSyncProcessorIO[I, O, In, Out], I, O, In, Out any] struct {
 	*fsm
 
-	processor GenericMInNOutSyncProcessor[In, Out]
+	processor             GenericMInNOutSyncProcessor[In, Out]
+	controllableProcessor Controllable
 
 	config config
 	logger *slog.Logger
-
-	supportsControl bool
-	controllable    Controllable
 
 	inputCh       <-chan []I
 	outputChs     []chan O
@@ -93,30 +91,30 @@ func newFSMMInNOutSync[
 	logger *slog.Logger,
 	inputCh <-chan []I,
 ) *fsmMInNOutSync[IO, I, O, In, Out] {
-	controllable, supportsControl := processor.(Controllable)
-
 	outputChs := make([]chan O, processor.NumOutputs())
 	for i := range outputChs {
 		outputChs[i] = make(chan O)
 	}
 
 	fsm := &fsmMInNOutSync[IO, I, O, In, Out]{
-		fsm:             &fsm{},
-		processor:       processor,
-		config:          config,
-		logger:          logger,
-		inputCh:         inputCh,
-		supportsControl: supportsControl,
-		controllable:    controllable,
-		outputChs:       outputChs,
-		closeCh:         make(chan struct{}),
-		doneCh:          make(chan struct{}),
-		initErrCh:       make(chan error),
-		closeErrCh:      make(chan error),
-		startCh:         make(chan struct{}),
-		startDoneCh:     make(chan struct{}),
-		stopAfterInit:   make(chan struct{}),
-		controlReqCh:    make(chan *wrappedRequest),
+		fsm:           &fsm{},
+		processor:     processor,
+		config:        config,
+		logger:        logger,
+		inputCh:       inputCh,
+		outputChs:     outputChs,
+		closeCh:       make(chan struct{}),
+		doneCh:        make(chan struct{}),
+		initErrCh:     make(chan error),
+		closeErrCh:    make(chan error),
+		startCh:       make(chan struct{}),
+		startDoneCh:   make(chan struct{}),
+		stopAfterInit: make(chan struct{}),
+		controlReqCh:  make(chan *wrappedRequest),
+	}
+
+	if controllableProcessor, ok := processor.(Controllable); ok {
+		fsm.controllableProcessor = controllableProcessor
 	}
 
 	fsm.setState(StateCreated)
@@ -345,11 +343,11 @@ func (fsm *fsmMInNOutSync[_, _, _, _, _]) handleControlRequest(ctlReq *wrappedRe
 			panic("impossible state: " + fsm.getState().String())
 		}
 	default:
-		if !fsm.supportsControl {
+		if fsm.controllableProcessor == nil {
 			ctlReq.res <- ErrControlNotSupported
 			return
 		}
-		ctlReq.res <- fsm.controllable.OnControl(ctlReq.req)
+		ctlReq.res <- fsm.controllableProcessor.OnControl(ctlReq.req)
 	}
 }
 

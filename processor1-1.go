@@ -58,13 +58,11 @@ func InitializeGeneric1In1OutSyncProcessor[IO Generic1In1OutSyncProcessorIO[I, O
 type fsm1In1OutSync[IO Generic1In1OutSyncProcessorIO[I, O, In, Out], I, O, In, Out any] struct {
 	*fsm
 
-	processor Generic1In1OutSyncProcessor[In, Out]
+	processor             Generic1In1OutSyncProcessor[In, Out]
+	controllableProcessor Controllable
 
 	config config
 	logger *slog.Logger
-
-	supportsControl bool
-	controllable    Controllable
 
 	inputCh       <-chan I
 	outputCh      chan O
@@ -87,25 +85,25 @@ func newFSM1In1OutSync[
 	logger *slog.Logger,
 	inputCh <-chan I,
 ) *fsm1In1OutSync[IO, I, O, In, Out] {
-	controllable, supportsControl := processor.(Controllable)
-
 	fsm := &fsm1In1OutSync[IO, I, O, In, Out]{
-		fsm:             &fsm{},
-		processor:       processor,
-		config:          config,
-		logger:          logger,
-		inputCh:         inputCh,
-		supportsControl: supportsControl,
-		controllable:    controllable,
-		outputCh:        make(chan O),
-		closeCh:         make(chan struct{}),
-		doneCh:          make(chan struct{}),
-		initErrCh:       make(chan error),
-		closeErrCh:      make(chan error),
-		startCh:         make(chan struct{}),
-		startDoneCh:     make(chan struct{}),
-		stopAfterInit:   make(chan struct{}),
-		controlReqCh:    make(chan *wrappedRequest),
+		fsm:           &fsm{},
+		processor:     processor,
+		config:        config,
+		logger:        logger,
+		inputCh:       inputCh,
+		outputCh:      make(chan O),
+		closeCh:       make(chan struct{}),
+		doneCh:        make(chan struct{}),
+		initErrCh:     make(chan error),
+		closeErrCh:    make(chan error),
+		startCh:       make(chan struct{}),
+		startDoneCh:   make(chan struct{}),
+		stopAfterInit: make(chan struct{}),
+		controlReqCh:  make(chan *wrappedRequest),
+	}
+
+	if controllableProcessor, ok := processor.(Controllable); ok {
+		fsm.controllableProcessor = controllableProcessor
 	}
 
 	fsm.setState(StateCreated)
@@ -316,11 +314,11 @@ func (fsm *fsm1In1OutSync[_, _, _, _, _]) handleControlRequest(ctlReq *wrappedRe
 			panic("impossible state: " + fsm.getState().String())
 		}
 	default:
-		if !fsm.supportsControl {
+		if fsm.controllableProcessor == nil {
 			ctlReq.res <- ErrControlNotSupported
 			return
 		}
-		ctlReq.res <- fsm.controllable.OnControl(ctlReq.req)
+		ctlReq.res <- fsm.controllableProcessor.OnControl(ctlReq.req)
 	}
 }
 
@@ -398,13 +396,11 @@ func InitializeGeneric1In1OutAsyncProcessor[IO Generic1In1OutAsyncProcessorIO[I,
 type fsm1In1OutAsync[IO Generic1In1OutAsyncProcessorIO[I, O, In, Out], I, O, In, Out any] struct {
 	*fsm
 
-	processor Generic1In1OutAsyncProcessor[In, Out]
+	processor             Generic1In1OutAsyncProcessor[In, Out]
+	controllableProcessor Controllable
 
 	config config
 	logger *slog.Logger
-
-	supportsControl bool
-	controllable    Controllable
 
 	inputCh       <-chan I
 	outputCh      chan O
@@ -427,25 +423,25 @@ func newFSM1In1OutAsync[
 	logger *slog.Logger,
 	inputCh <-chan I,
 ) *fsm1In1OutAsync[IO, I, O, In, Out] {
-	controllable, supportsControl := processor.(Controllable)
-
 	fsm := &fsm1In1OutAsync[IO, I, O, In, Out]{
-		fsm:             &fsm{},
-		processor:       processor,
-		config:          config,
-		logger:          logger,
-		inputCh:         inputCh,
-		supportsControl: supportsControl,
-		controllable:    controllable,
-		outputCh:        make(chan O),
-		closeCh:         make(chan struct{}),
-		doneCh:          make(chan struct{}),
-		initErrCh:       make(chan error),
-		closeErrCh:      make(chan error),
-		startCh:         make(chan struct{}),
-		startDoneCh:     make(chan struct{}),
-		stopAfterInit:   make(chan struct{}),
-		controlReqCh:    make(chan *wrappedRequest),
+		fsm:           &fsm{},
+		processor:     processor,
+		config:        config,
+		logger:        logger,
+		inputCh:       inputCh,
+		outputCh:      make(chan O),
+		closeCh:       make(chan struct{}),
+		doneCh:        make(chan struct{}),
+		initErrCh:     make(chan error),
+		closeErrCh:    make(chan error),
+		startCh:       make(chan struct{}),
+		startDoneCh:   make(chan struct{}),
+		stopAfterInit: make(chan struct{}),
+		controlReqCh:  make(chan *wrappedRequest),
+	}
+
+	if controllableProcessor, ok := processor.(Controllable); ok {
+		fsm.controllableProcessor = controllableProcessor
 	}
 
 	fsm.setState(StateCreated)
@@ -674,11 +670,11 @@ func (fsm *fsm1In1OutAsync[_, _, _, _, _]) handleControlRequest(ctlReq *wrappedR
 			panic("impossible state: " + fsm.getState().String())
 		}
 	default:
-		if !fsm.supportsControl {
+		if fsm.controllableProcessor == nil {
 			ctlReq.res <- ErrControlNotSupported
 			return
 		}
-		ctlReq.res <- fsm.controllable.OnControl(ctlReq.req)
+		ctlReq.res <- fsm.controllableProcessor.OnControl(ctlReq.req)
 	}
 }
 

@@ -72,18 +72,23 @@ func newFSMMultiProcessor1In0OutSync[IO Generic1In0OutSyncProcessorIO[I, In], I,
 ) *fsmMultiProcessor1In0OutSync[IO, I, In, P] {
 	subProcessorFSMs := make([]*fsm1In0OutSync[IO, I, In], len(processors))
 	subProcessorInputChs := make([]chan I, len(processors))
-	controllableProcessor := make([]Controllable, len(processors))
+	controllableProcessors := make([]Controllable, len(processors))
 
 	for i, processor := range processors {
 		subProcessorInputChs[i] = make(chan I)
 		subProcessorFSMs[i] = newFSM1In0OutSync[IO](processor, config, logger.With("multiproc_index", i), subProcessorInputChs[i])
-		controllableProcessor[i] = any(processor).(Controllable)
+		controllableProcessor, ok := any(processor).(Controllable)
+		if ok {
+			controllableProcessors[i] = controllableProcessor
+		} else {
+			controllableProcessors[i] = nil
+		}
 	}
 
 	fsm := &fsmMultiProcessor1In0OutSync[IO, I, In, P]{
 		fsm:                    &fsm{},
 		processors:             processors,
-		controllableProcessors: controllableProcessor,
+		controllableProcessors: controllableProcessors,
 		subProcessorFSMs:       subProcessorFSMs,
 		config:                 config,
 		logger:                 logger,

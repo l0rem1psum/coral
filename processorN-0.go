@@ -53,13 +53,11 @@ func InitializeGenericNIn0OutAsyncProcessor[IO GenericNIn0OutAsyncProcessorIO[I,
 type fsmNIn0OutAsync[IO GenericNIn0OutAsyncProcessorIO[I, In], I, In any] struct {
 	*fsm
 
-	processor GenericNIn0OutAsyncProcessor[In]
+	processor             GenericNIn0OutAsyncProcessor[In]
+	controllableProcessor Controllable
 
 	config config
 	logger *slog.Logger
-
-	supportsControl bool
-	controllable    Controllable
 
 	inputChs      []<-chan I
 	fannedInputCh <-chan fannedInResult[I]
@@ -82,24 +80,24 @@ func newFSMNIn0OutAsync[
 	logger *slog.Logger,
 	inputChs []<-chan I,
 ) *fsmNIn0OutAsync[IO, I, In] {
-	controllable, supportsControl := processor.(Controllable)
-
 	fsm := &fsmNIn0OutAsync[IO, I, In]{
-		fsm:             &fsm{},
-		processor:       processor,
-		config:          config,
-		logger:          logger,
-		inputChs:        inputChs,
-		supportsControl: supportsControl,
-		controllable:    controllable,
-		closeCh:         make(chan struct{}),
-		doneCh:          make(chan struct{}),
-		initErrCh:       make(chan error),
-		closeErrCh:      make(chan error),
-		startCh:         make(chan struct{}),
-		startDoneCh:     make(chan struct{}),
-		stopAfterInit:   make(chan struct{}),
-		controlReqCh:    make(chan *wrappedRequest),
+		fsm:           &fsm{},
+		processor:     processor,
+		config:        config,
+		logger:        logger,
+		inputChs:      inputChs,
+		closeCh:       make(chan struct{}),
+		doneCh:        make(chan struct{}),
+		initErrCh:     make(chan error),
+		closeErrCh:    make(chan error),
+		startCh:       make(chan struct{}),
+		startDoneCh:   make(chan struct{}),
+		stopAfterInit: make(chan struct{}),
+		controlReqCh:  make(chan *wrappedRequest),
+	}
+
+	if controllableProcessor, ok := processor.(Controllable); ok {
+		fsm.controllableProcessor = controllableProcessor
 	}
 
 	fsm.setState(StateCreated)
@@ -288,11 +286,11 @@ func (fsm *fsmNIn0OutAsync[_, _, _]) handleControlRequest(ctlReq *wrappedRequest
 			panic("impossible state: " + fsm.getState().String())
 		}
 	default:
-		if !fsm.supportsControl {
+		if fsm.controllableProcessor == nil {
 			ctlReq.res <- ErrControlNotSupported
 			return
 		}
-		ctlReq.res <- fsm.controllable.OnControl(ctlReq.req)
+		ctlReq.res <- fsm.controllableProcessor.OnControl(ctlReq.req)
 	}
 }
 

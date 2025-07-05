@@ -53,13 +53,11 @@ func InitializeGeneric1In0OutSyncProcessor[IO Generic1In0OutSyncProcessorIO[I, I
 type fsm1In0OutSync[IO Generic1In0OutSyncProcessorIO[I, In], I, In any] struct {
 	*fsm
 
-	processor Generic1In0OutSyncProcessor[In]
+	processor             Generic1In0OutSyncProcessor[In]
+	controllableProcessor Controllable
 
 	config config
 	logger *slog.Logger
-
-	supportsControl bool
-	controllable    Controllable
 
 	inputCh       <-chan I
 	closeCh       chan struct{}
@@ -81,24 +79,24 @@ func newFSM1In0OutSync[
 	logger *slog.Logger,
 	inputCh <-chan I,
 ) *fsm1In0OutSync[IO, I, In] {
-	controllable, supportsControl := processor.(Controllable)
-
 	fsm := &fsm1In0OutSync[IO, I, In]{
-		fsm:             &fsm{},
-		processor:       processor,
-		config:          config,
-		logger:          logger,
-		inputCh:         inputCh,
-		supportsControl: supportsControl,
-		controllable:    controllable,
-		closeCh:         make(chan struct{}),
-		doneCh:          make(chan struct{}),
-		initErrCh:       make(chan error),
-		closeErrCh:      make(chan error),
-		startCh:         make(chan struct{}),
-		startDoneCh:     make(chan struct{}),
-		stopAfterInit:   make(chan struct{}),
-		controlReqCh:    make(chan *wrappedRequest),
+		fsm:           &fsm{},
+		processor:     processor,
+		config:        config,
+		logger:        logger,
+		inputCh:       inputCh,
+		closeCh:       make(chan struct{}),
+		doneCh:        make(chan struct{}),
+		initErrCh:     make(chan error),
+		closeErrCh:    make(chan error),
+		startCh:       make(chan struct{}),
+		startDoneCh:   make(chan struct{}),
+		stopAfterInit: make(chan struct{}),
+		controlReqCh:  make(chan *wrappedRequest),
+	}
+
+	if controllableProcessor, ok := processor.(Controllable); ok {
+		fsm.controllableProcessor = controllableProcessor
 	}
 
 	fsm.setState(StateCreated)
@@ -280,11 +278,11 @@ func (fsm *fsm1In0OutSync[_, _, _]) handleControlRequest(ctlReq *wrappedRequest)
 			panic("impossible state: " + fsm.getState().String())
 		}
 	default:
-		if !fsm.supportsControl {
+		if fsm.controllableProcessor == nil {
 			ctlReq.res <- ErrControlNotSupported
 			return
 		}
-		ctlReq.res <- fsm.controllable.OnControl(ctlReq.req)
+		ctlReq.res <- fsm.controllableProcessor.OnControl(ctlReq.req)
 	}
 }
 
