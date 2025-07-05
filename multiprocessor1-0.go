@@ -6,6 +6,7 @@ import (
 	"sync/atomic"
 
 	"github.com/hashicorp/go-multierror"
+	"github.com/samber/lo"
 )
 
 // InitializeGeneric1In0OutSyncMultiProcessor[IO, I, In, P] creates multi-processor setup closure for parallel sink processing.
@@ -40,13 +41,12 @@ func InitializeGeneric1In0OutSyncMultiProcessor[IO Generic1In0OutSyncProcessorIO
 type fsmMultiProcessor1In0OutSync[IO Generic1In0OutSyncProcessorIO[I, In], I, In any, P Generic1In0OutSyncProcessor[In]] struct {
 	*fsm
 
-	processors       []P
-	subProcessorFSMs []*fsm1In0OutSync[IO, I, In]
+	processors             []P
+	controllableProcessors []Controllable
+	subProcessorFSMs       []*fsm1In0OutSync[IO, I, In]
 
 	config config
 	logger *slog.Logger
-
-	allSupportControl bool
 
 	inputsCh <-chan []I
 	closeCh  chan struct{}
@@ -71,40 +71,34 @@ func newFSMMultiProcessor1In0OutSync[IO Generic1In0OutSyncProcessorIO[I, In], I,
 	logger *slog.Logger,
 	inputsCh <-chan []I,
 ) *fsmMultiProcessor1In0OutSync[IO, I, In, P] {
-	allSupportControl := true
-	for _, p := range processors {
-		if _, ok := any(p).(Controllable); !ok {
-			allSupportControl = false
-			break
-		}
-	}
-
 	subProcessorFSMs := make([]*fsm1In0OutSync[IO, I, In], len(processors))
 	subProcessorInputChs := make([]chan I, len(processors))
+	controllableProcessor := make([]Controllable, len(processors))
 
 	for i, processor := range processors {
 		subProcessorInputChs[i] = make(chan I)
 		subProcessorFSMs[i] = newFSM1In0OutSync[IO](processor, config, logger.With("multiproc_index", i), subProcessorInputChs[i])
+		controllableProcessor[i] = any(processor).(Controllable)
 	}
 
 	fsm := &fsmMultiProcessor1In0OutSync[IO, I, In, P]{
-		fsm:                  &fsm{},
-		processors:           processors,
-		subProcessorFSMs:     subProcessorFSMs,
-		config:               config,
-		logger:               logger,
-		allSupportControl:    allSupportControl,
-		inputsCh:             inputsCh,
-		closeCh:              make(chan struct{}),
-		doneCh:               make(chan struct{}),
-		initErrsCh:           make(chan []error),
-		closeErrCh:           make(chan error),
-		startCh:              make(chan struct{}),
-		startDoneCh:          make(chan struct{}),
-		startErrsCh:          make(chan []error),
-		stopAfterInit:        make(chan struct{}),
-		controlReqCh:         make(chan *wrappedRequest),
-		subProcessorInputChs: subProcessorInputChs,
+		fsm:                    &fsm{},
+		processors:             processors,
+		controllableProcessors: controllableProcessor,
+		subProcessorFSMs:       subProcessorFSMs,
+		config:                 config,
+		logger:                 logger,
+		inputsCh:               inputsCh,
+		closeCh:                make(chan struct{}),
+		doneCh:                 make(chan struct{}),
+		initErrsCh:             make(chan []error),
+		closeErrCh:             make(chan error),
+		startCh:                make(chan struct{}),
+		startDoneCh:            make(chan struct{}),
+		startErrsCh:            make(chan []error),
+		stopAfterInit:          make(chan struct{}),
+		controlReqCh:           make(chan *wrappedRequest),
+		subProcessorInputChs:   subProcessorInputChs,
 	}
 
 	fsm.setState(StateCreated)
@@ -371,27 +365,30 @@ func (fsm *fsmMultiProcessor1In0OutSync[_, _, _, P]) handleControlRequest(ctlReq
 			panic("impossible state: " + fsm.getState().String())
 		}
 	case *MultiProcessorRequest:
-		if !fsm.allSupportControl {
+		multiReq := ctlReq.req.(*MultiProcessorRequest)
+		if controllableProcessor := fsm.controllableProcessors[multiReq.I]; controllableProcessor == nil {
 			ctlReq.res <- ErrControlNotSupported
 			return
+		} else {
+			ctlReq.res <- controllableProcessor.OnControl(multiReq.Req)
 		}
-		multiReq := ctlReq.req.(*MultiProcessorRequest)
-		ctlReq.res <- any(fsm.processors[multiReq.I]).(Controllable).OnControl(multiReq.Req)
 	default:
-		if !fsm.allSupportControl {
+		if lo.SomeBy(fsm.controllableProcessors, func(c Controllable) bool {
+			return c == nil
+		}) {
 			ctlReq.res <- ErrControlNotSupported
 			return
 		}
 
 		// Broadcast control request to all sub-processors
 		var wg sync.WaitGroup
-		wg.Add(len(fsm.processors))
-		ctlErrs := make([]error, len(fsm.processors))
-		for i, processor := range fsm.processors {
-			go func(i int, processor P) {
+		wg.Add(len(fsm.controllableProcessors))
+		ctlErrs := make([]error, len(fsm.controllableProcessors))
+		for i, controllableProcessor := range fsm.controllableProcessors {
+			go func(i int, controllableProcessor Controllable) {
 				defer wg.Done()
-				ctlErrs[i] = any(processor).(Controllable).OnControl(ctlReq.req)
-			}(i, processor)
+				ctlErrs[i] = controllableProcessor.OnControl(ctlReq.req)
+			}(i, controllableProcessor)
 		}
 		wg.Wait()
 
