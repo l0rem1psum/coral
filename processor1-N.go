@@ -1,6 +1,7 @@
 package processor
 
 import (
+	"errors"
 	"log/slog"
 	"sync"
 
@@ -269,6 +270,9 @@ func (fsm *fsm1InNOutSync[IO, I, O, In, Out]) processInput(i I) {
 
 	in := io.AsInput(i)
 	outs, err := fsm.processor.Process(in)
+	if errors.Is(err, SkipResult) {
+		return
+	}
 	if err != nil {
 		fsm.logger.With("error", err).Error(logProcessingError)
 		return
