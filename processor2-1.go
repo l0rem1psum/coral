@@ -102,7 +102,7 @@ func newFSM2In1OutAsync[
 		logger:        logger,
 		input1Ch:      input1Ch,
 		input2Ch:      input2Ch,
-		outputCh:      make(chan O),
+		outputCh:      make(chan O, config.outputChannelSize),
 		closeCh:       make(chan struct{}),
 		doneCh:        make(chan struct{}),
 		initErrCh:     make(chan error),

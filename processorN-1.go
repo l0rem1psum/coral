@@ -93,7 +93,7 @@ func newFSMNIn1OutAsync[
 		config:        config,
 		logger:        logger,
 		inputChs:      inputChs,
-		outputCh:      make(chan O),
+		outputCh:      make(chan O, config.outputChannelSize),
 		closeCh:       make(chan struct{}),
 		doneCh:        make(chan struct{}),
 		initErrCh:     make(chan error),

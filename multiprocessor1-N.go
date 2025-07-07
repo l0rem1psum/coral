@@ -95,7 +95,7 @@ func newFSMMultiProcessor1InNOutSync[IO Generic1InNOutSyncProcessorIO[I, O, In, 
 	numOutputs := processors[0].NumOutputs()
 	outputChs := make([]chan []O, numOutputs)
 	for i := range outputChs {
-		outputChs[i] = make(chan []O)
+		outputChs[i] = make(chan []O, cfg.outputChannelSize)
 	}
 
 	fsm := &fsmMultiProcessor1InNOutSync[IO, I, O, In, Out, P]{

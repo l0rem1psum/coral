@@ -93,7 +93,7 @@ func newFSMMInNOutSync[
 ) *fsmMInNOutSync[IO, I, O, In, Out] {
 	outputChs := make([]chan O, processor.NumOutputs())
 	for i := range outputChs {
-		outputChs[i] = make(chan O)
+		outputChs[i] = make(chan O, config.outputChannelSize)
 	}
 
 	fsm := &fsmMInNOutSync[IO, I, O, In, Out]{
