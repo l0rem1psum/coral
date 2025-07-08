@@ -22,6 +22,7 @@ type config struct {
 	startPaused        bool
 	blockOnOutput      bool
 	useRoundRobinFanIn bool // TODO: warn if set on non-N processor
+	outputChannelSize  int
 }
 
 type Option func(*config)
@@ -53,5 +54,11 @@ func BlockOnOutput() Option {
 func UseRoundRobinFanIn() Option {
 	return func(c *config) {
 		c.useRoundRobinFanIn = true
+	}
+}
+
+func WithOutputChannelSize(size int) Option {
+	return func(c *config) {
+		c.outputChannelSize = max(0, size)
 	}
 }
