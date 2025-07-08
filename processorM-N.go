@@ -1,8 +1,10 @@
 package processor
 
 import (
+	"context"
 	"log/slog"
 	"sync"
+	"time"
 
 	"github.com/samber/lo"
 )
@@ -67,8 +69,9 @@ type fsmMInNOutSync[IO GenericMInNOutSyncProcessorIO[I, O, In, Out], I, O, In, O
 	processor             GenericMInNOutSyncProcessor[In, Out]
 	controllableProcessor Controllable
 
-	config config
-	logger *slog.Logger
+	config  config
+	logger  *slog.Logger
+	metrics *metricsRecorder
 
 	inputCh       <-chan []I
 	outputChs     []chan O
@@ -111,6 +114,14 @@ func newFSMMInNOutSync[
 		startDoneCh:   make(chan struct{}),
 		stopAfterInit: make(chan struct{}),
 		controlReqCh:  make(chan *wrappedRequest),
+	}
+
+	if config.meter != nil && config.label != nil {
+		if metrics, err := newMetricsRecorder(config.meter, *config.label); err != nil {
+			logger.With("error", err).Warn("Failed to initialize processor metrics")
+		} else {
+			fsm.metrics = metrics
+		}
 	}
 
 	if controllableProcessor, ok := processor.(Controllable); ok {
@@ -260,8 +271,9 @@ func (fsm *fsmMInNOutSync[IO, I, _, _, _]) handleInputBatch(inputBatch []I) {
 	case StateRunning:
 		fsm.processBatch(inputBatch)
 	case StatePaused:
-		for _, input := range inputBatch {
+		for i, input := range inputBatch {
 			io.ReleaseInput(input)
+			fsm.metrics.recordInputReleased(context.Background(), i)
 		}
 	default:
 		panic("impossible state: " + fsm.getState().String())
@@ -273,11 +285,15 @@ func (fsm *fsmMInNOutSync[IO, I, O, In, Out]) processBatch(inputBatch []I) {
 
 	ins := lo.Map(inputBatch, func(i I, _ int) In { return io.AsInput(i) })
 
+	start := time.Now()
 	outputs, err := fsm.processor.Process(ins)
 	if err != nil {
 		fsm.logger.With("error", err).Error(logProcessingError)
+		fsm.metrics.recordInputProcessedFailure(context.Background(), 0)
 		return
 	}
+	fsm.metrics.recordProcessDuration(context.Background(), time.Since(start))
+	fsm.metrics.recordInputProcessedSuccess(context.Background(), 0)
 
 	outputsAdapted := lo.Map(outputs, func(out Out, _ int) O { return io.FromOutput(out) })
 
@@ -301,6 +317,7 @@ func (fsm *fsmMInNOutSync[IO, _, O, _, _]) handleOutputs(outputs []O) {
 func (fsm *fsmMInNOutSync[IO, _, O, _, _]) deliverToChannel(channelIndex int, output O) {
 	var io IO
 
+	start := time.Now()
 	if fsm.config.blockOnOutput {
 		fsm.outputChs[channelIndex] <- output
 	} else {
@@ -311,13 +328,16 @@ func (fsm *fsmMInNOutSync[IO, _, O, _, _]) deliverToChannel(channelIndex int, ou
 			case oldOutput := <-fsm.outputChs[channelIndex]:
 				fsm.logger.With("output_index", channelIndex).Warn(logOutputChannelFullDropOldest)
 				io.ReleaseOutput(oldOutput)
+				fsm.metrics.recordOutputReleased(context.Background(), channelIndex)
 				fsm.outputChs[channelIndex] <- output
 			default:
 				fsm.logger.With("output_index", channelIndex).Warn(logOutputChannelFullDropCurrent)
 				io.ReleaseOutput(output)
+				fsm.metrics.recordOutputReleased(context.Background(), channelIndex)
 			}
 		}
 	}
+	fsm.metrics.recordOutputDuration(context.Background(), channelIndex, time.Since(start))
 }
 
 func (fsm *fsmMInNOutSync[_, _, _, _, _]) handleControlRequest(ctlReq *wrappedRequest) {
@@ -359,9 +379,10 @@ func (fsm *fsmMInNOutSync[IO, _, _, _, _]) cleanup() {
 	close(fsm.controlReqCh)
 
 	// Drain remaining outputs and release resources
-	for _, outputCh := range fsm.outputChs {
+	for i, outputCh := range fsm.outputChs {
 		for o := range outputCh {
 			io.ReleaseOutput(o)
+			fsm.metrics.recordOutputReleased(context.Background(), i)
 		}
 	}
 

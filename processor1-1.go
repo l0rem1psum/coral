@@ -1,7 +1,9 @@
 package processor
 
 import (
+	"context"
 	"log/slog"
+	"time"
 )
 
 // Generic1In1OutSyncProcessor[In, Out] transforms data synchronously with 1:1 mapping.
@@ -61,8 +63,9 @@ type fsm1In1OutSync[IO Generic1In1OutSyncProcessorIO[I, O, In, Out], I, O, In, O
 	processor             Generic1In1OutSyncProcessor[In, Out]
 	controllableProcessor Controllable
 
-	config config
-	logger *slog.Logger
+	config  config
+	logger  *slog.Logger
+	metrics *metricsRecorder
 
 	inputCh       <-chan I
 	outputCh      chan O
@@ -100,6 +103,14 @@ func newFSM1In1OutSync[
 		startDoneCh:   make(chan struct{}),
 		stopAfterInit: make(chan struct{}),
 		controlReqCh:  make(chan *wrappedRequest),
+	}
+
+	if config.meter != nil && config.label != nil {
+		if metrics, err := newMetricsRecorder(config.meter, *config.label); err != nil {
+			logger.With("error", err).Warn("Failed to initialize processor metrics")
+		} else {
+			fsm.metrics = metrics
+		}
 	}
 
 	if controllableProcessor, ok := processor.(Controllable); ok {
@@ -250,6 +261,7 @@ func (fsm *fsm1In1OutSync[IO, I, _, _, _]) handleInput(i I) {
 		fsm.processInput(i)
 	case StatePaused:
 		io.ReleaseInput(i)
+		fsm.metrics.recordInputReleased(context.Background(), 0)
 	default:
 		panic("impossible state: " + fsm.getState().String())
 	}
@@ -259,11 +271,16 @@ func (fsm *fsm1In1OutSync[IO, I, _, _, _]) processInput(i I) {
 	var io IO
 
 	in := io.AsInput(i)
+
+	start := time.Now()
 	out, err := fsm.processor.Process(in)
 	if err != nil {
 		fsm.logger.With("error", err).Error(logProcessingError)
+		fsm.metrics.recordInputProcessedFailure(context.Background(), 0)
 		return
 	}
+	fsm.metrics.recordProcessDuration(context.Background(), time.Since(start))
+	fsm.metrics.recordInputProcessedSuccess(context.Background(), 0)
 
 	uo := io.FromOutput(i, out)
 	fsm.handleOutput(uo)
@@ -272,6 +289,7 @@ func (fsm *fsm1In1OutSync[IO, I, _, _, _]) processInput(i I) {
 func (fsm *fsm1In1OutSync[IO, _, O, _, _]) handleOutput(output O) {
 	var io IO
 
+	start := time.Now()
 	if fsm.config.blockOnOutput {
 		fsm.outputCh <- output
 	} else {
@@ -282,13 +300,16 @@ func (fsm *fsm1In1OutSync[IO, _, O, _, _]) handleOutput(output O) {
 			case oldOutput := <-fsm.outputCh:
 				fsm.logger.Warn(logOutputChannelFullDropOldest)
 				io.ReleaseOutput(oldOutput)
+				fsm.metrics.recordOutputReleased(context.Background(), 0)
 				fsm.outputCh <- output
 			default:
 				fsm.logger.Warn(logOutputChannelFullDropCurrent)
 				io.ReleaseOutput(output)
+				fsm.metrics.recordOutputReleased(context.Background(), 0)
 			}
 		}
 	}
+	fsm.metrics.recordOutputDuration(context.Background(), 0, time.Since(start))
 }
 
 func (fsm *fsm1In1OutSync[_, _, _, _, _]) handleControlRequest(ctlReq *wrappedRequest) {
@@ -332,6 +353,7 @@ func (fsm *fsm1In1OutSync[IO, _, _, _, _]) cleanup() {
 	// Drain remaining outputs and release resources
 	for o := range fsm.outputCh {
 		io.ReleaseOutput(o)
+		fsm.metrics.recordOutputReleased(context.Background(), 0)
 	}
 
 	// Close the processor and report any error
@@ -399,8 +421,9 @@ type fsm1In1OutAsync[IO Generic1In1OutAsyncProcessorIO[I, O, In, Out], I, O, In,
 	processor             Generic1In1OutAsyncProcessor[In, Out]
 	controllableProcessor Controllable
 
-	config config
-	logger *slog.Logger
+	config  config
+	logger  *slog.Logger
+	metrics *metricsRecorder
 
 	inputCh       <-chan I
 	outputCh      chan O
@@ -438,6 +461,14 @@ func newFSM1In1OutAsync[
 		startDoneCh:   make(chan struct{}),
 		stopAfterInit: make(chan struct{}),
 		controlReqCh:  make(chan *wrappedRequest),
+	}
+
+	if config.meter != nil && config.label != nil {
+		if metrics, err := newMetricsRecorder(config.meter, *config.label); err != nil {
+			logger.With("error", err).Warn("Failed to initialize processor metrics")
+		} else {
+			fsm.metrics = metrics
+		}
 	}
 
 	if controllableProcessor, ok := processor.(Controllable); ok {
@@ -595,6 +626,7 @@ func (fsm *fsm1In1OutAsync[IO, I, _, _, _]) handleInput(i I) {
 		fsm.processInput(i)
 	case StatePaused:
 		io.ReleaseInput(i)
+		fsm.metrics.recordInputReleased(context.Background(), 0)
 	default:
 		panic("impossible state: " + fsm.getState().String())
 	}
@@ -604,9 +636,15 @@ func (fsm *fsm1In1OutAsync[IO, I, _, _, _]) processInput(i I) {
 	var io IO
 
 	in := io.AsInput(i)
+
+	start := time.Now()
 	if err := fsm.processor.Process(in); err != nil {
 		fsm.logger.With("error", err).Error(logProcessingError)
+		fsm.metrics.recordInputProcessedFailure(context.Background(), 0)
+		return
 	}
+	fsm.metrics.recordProcessDuration(context.Background(), time.Since(start))
+	fsm.metrics.recordInputProcessedSuccess(context.Background(), 0)
 }
 
 func (fsm *fsm1In1OutAsync[IO, _, O, _, Out]) handleProcessorOutput(out Out) {
@@ -628,6 +666,7 @@ func (fsm *fsm1In1OutAsync[IO, _, O, _, Out]) handleProcessorOutput(out Out) {
 func (fsm *fsm1In1OutAsync[IO, _, O, _, _]) handleOutput(output O) {
 	var io IO
 
+	start := time.Now()
 	if fsm.config.blockOnOutput {
 		fsm.outputCh <- output
 	} else {
@@ -638,13 +677,16 @@ func (fsm *fsm1In1OutAsync[IO, _, O, _, _]) handleOutput(output O) {
 			case oldOutput := <-fsm.outputCh:
 				fsm.logger.Warn(logOutputChannelFullDropOldest)
 				io.ReleaseOutput(oldOutput)
+				fsm.metrics.recordOutputReleased(context.Background(), 0)
 				fsm.outputCh <- output
 			default:
 				fsm.logger.Warn(logOutputChannelFullDropCurrent)
 				io.ReleaseOutput(output)
+				fsm.metrics.recordOutputReleased(context.Background(), 0)
 			}
 		}
 	}
+	fsm.metrics.recordOutputDuration(context.Background(), 0, time.Since(start))
 }
 
 func (fsm *fsm1In1OutAsync[_, _, _, _, _]) handleControlRequest(ctlReq *wrappedRequest) {
@@ -688,12 +730,14 @@ func (fsm *fsm1In1OutAsync[IO, _, _, _, _]) cleanup() {
 	// Drain remaining outputs and release resources
 	for o := range fsm.outputCh {
 		io.ReleaseOutput(o)
+		fsm.metrics.recordOutputReleased(context.Background(), 0)
 	}
 
 	// Drain remaining processor outputs and release resources
 	go func() {
 		for o := range fsm.processor.Output() {
 			io.ReleaseOutput(io.FromOutput(o))
+			fsm.metrics.recordOutputReleased(context.Background(), 0)
 		}
 	}()
 

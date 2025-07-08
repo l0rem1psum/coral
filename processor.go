@@ -3,6 +3,8 @@ package processor
 import (
 	"errors"
 	"log/slog"
+
+	"go.opentelemetry.io/otel/metric"
 )
 
 var (
@@ -23,6 +25,8 @@ type config struct {
 	blockOnOutput      bool
 	useRoundRobinFanIn bool // TODO: warn if set on non-N processor
 	outputChannelSize  int
+
+	meter metric.Meter
 }
 
 type Option func(*config)
@@ -60,5 +64,11 @@ func UseRoundRobinFanIn() Option {
 func WithOutputChannelSize(size int) Option {
 	return func(c *config) {
 		c.outputChannelSize = max(0, size)
+	}
+}
+
+func WithMetrics(meter metric.Meter) Option {
+	return func(c *config) {
+		c.meter = meter
 	}
 }
