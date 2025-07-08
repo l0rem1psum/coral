@@ -17,15 +17,17 @@ var (
 )
 
 type metricsRecorder struct {
-	attributes []attribute.KeyValue
-
 	inputProcessed  metric.Int64Counter
 	itemReleased    metric.Int64Counter
 	processDuration metric.Int64Histogram
 	outputDuration  metric.Int64Histogram
 }
 
-func newMetricsRecorder(meter metric.Meter, label string) (*metricsRecorder, error) {
+func newMetricsRecorder(mp metric.MeterProvider, label string) (*metricsRecorder, error) {
+	meter := mp.Meter("coral", metric.WithInstrumentationAttributes(
+		attribute.String("label", label),
+	))
+
 	inputProcessed, err := meter.Int64Counter(
 		metricsInputProcessed,
 		metric.WithDescription("Total number of input processed by the processor"),
@@ -63,7 +65,6 @@ func newMetricsRecorder(meter metric.Meter, label string) (*metricsRecorder, err
 	}
 
 	return &metricsRecorder{
-		attributes:      []attribute.KeyValue{{Key: "label", Value: attribute.StringValue(label)}},
 		inputProcessed:  inputProcessed,
 		itemReleased:    itemReleased,
 		processDuration: processDuration,
@@ -80,13 +81,8 @@ func (m *metricsRecorder) recordInputProcessedSuccess(ctx context.Context, proce
 		ctx,
 		1,
 		metric.WithAttributes(
-			append(
-				[]attribute.KeyValue{
-					attribute.String("result", "success"),
-					attribute.String("process_idx", fmt.Sprintf("%d", processIdx)),
-				},
-				m.attributes...,
-			)...,
+			attribute.String("result", "success"),
+			attribute.String("process_idx", fmt.Sprintf("%d", processIdx)),
 		),
 	)
 }
@@ -100,13 +96,8 @@ func (m *metricsRecorder) recordInputProcessedFailure(ctx context.Context, proce
 		ctx,
 		1,
 		metric.WithAttributes(
-			append(
-				[]attribute.KeyValue{
-					attribute.String("result", "failure"),
-					attribute.String("process_idx", fmt.Sprintf("%d", processIdx)),
-				},
-				m.attributes...,
-			)...,
+			attribute.String("result", "failure"),
+			attribute.String("process_idx", fmt.Sprintf("%d", processIdx)),
 		),
 	)
 }
@@ -120,13 +111,8 @@ func (m *metricsRecorder) recordInputReleased(ctx context.Context, inputIdx int)
 		ctx,
 		1,
 		metric.WithAttributes(
-			append(
-				[]attribute.KeyValue{
-					attribute.String("released_at", "input"),
-					attribute.String("input_idx", fmt.Sprintf("%d", inputIdx)),
-				},
-				m.attributes...,
-			)...,
+			attribute.String("released_at", "input"),
+			attribute.String("input_idx", fmt.Sprintf("%d", inputIdx)),
 		),
 	)
 }
@@ -140,13 +126,8 @@ func (m *metricsRecorder) recordOutputReleased(ctx context.Context, outputIdx in
 		ctx,
 		1,
 		metric.WithAttributes(
-			append(
-				[]attribute.KeyValue{
-					attribute.String("released_at", "output"),
-					attribute.String("output_idx", fmt.Sprintf("%d", outputIdx)),
-				},
-				m.attributes...,
-			)...,
+			attribute.String("released_at", "output"),
+			attribute.String("output_idx", fmt.Sprintf("%d", outputIdx)),
 		),
 	)
 }
@@ -159,7 +140,6 @@ func (m *metricsRecorder) recordProcessDuration(ctx context.Context, duration ti
 	m.processDuration.Record(
 		ctx,
 		duration.Microseconds(),
-		metric.WithAttributes(m.attributes...),
 	)
 }
 
@@ -172,10 +152,7 @@ func (m *metricsRecorder) recordOutputDuration(ctx context.Context, outputIdx in
 		ctx,
 		duration.Microseconds(),
 		metric.WithAttributes(
-			append(
-				[]attribute.KeyValue{attribute.String("output_idx", fmt.Sprintf("%d", outputIdx))},
-				m.attributes...,
-			)...,
+			attribute.String("output_idx", fmt.Sprintf("%d", outputIdx)),
 		),
 	)
 }

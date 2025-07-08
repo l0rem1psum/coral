@@ -116,8 +116,8 @@ func newFSM2In1OutAsync[
 		controlReqCh:  make(chan *wrappedRequest),
 	}
 
-	if config.meter != nil && config.label != nil {
-		if metrics, err := newMetricsRecorder(config.meter, *config.label); err != nil {
+	if config.meterProvider != nil && config.label != nil {
+		if metrics, err := newMetricsRecorder(config.meterProvider, *config.label); err != nil {
 			logger.With("error", err).Warn("Failed to initialize processor metrics")
 		} else {
 			fsm.metrics = metrics

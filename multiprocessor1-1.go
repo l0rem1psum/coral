@@ -87,7 +87,7 @@ func newFSMMultiProcessor1In1OutSync[IO Generic1In1OutSyncProcessorIO[I, O, In, 
 		// Always block on output channel to ensure all outputs are processed before next input batch
 		subConfig := config{
 			blockOnOutput: true,
-			meter:         cfg.meter,
+			meterProvider: cfg.meterProvider,
 		}
 		if cfg.label != nil {
 			subLabel := fmt.Sprintf("%s_%d", *cfg.label, i)
@@ -123,8 +123,8 @@ func newFSMMultiProcessor1In1OutSync[IO Generic1In1OutSyncProcessorIO[I, O, In, 
 		subProcessorInputChs:   subProcessorInputChs,
 	}
 
-	if cfg.meter != nil && cfg.label != nil {
-		if metrics, err := newMetricsRecorder(cfg.meter, *cfg.label); err != nil {
+	if cfg.meterProvider != nil && cfg.label != nil {
+		if metrics, err := newMetricsRecorder(cfg.meterProvider, *cfg.label); err != nil {
 			logger.With("error", err).Warn("Failed to initialize multiprocessor metrics")
 		} else {
 			fsm.metrics = metrics

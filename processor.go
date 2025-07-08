@@ -26,7 +26,7 @@ type config struct {
 	useRoundRobinFanIn bool // TODO: warn if set on non-N processor
 	outputChannelSize  int
 
-	meter metric.Meter
+	meterProvider metric.MeterProvider
 }
 
 type Option func(*config)
@@ -67,8 +67,8 @@ func WithOutputChannelSize(size int) Option {
 	}
 }
 
-func WithMetrics(meter metric.Meter) Option {
+func WithMeterProvider(mp metric.MeterProvider) Option {
 	return func(c *config) {
-		c.meter = meter
+		c.meterProvider = mp
 	}
 }

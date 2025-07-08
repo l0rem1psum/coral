@@ -81,7 +81,7 @@ func newFSMMultiProcessor1In0OutSync[IO Generic1In0OutSyncProcessorIO[I, In], I,
 	for i, processor := range processors {
 		subProcessorInputChs[i] = make(chan I)
 		subConfig := config{
-			meter: cfg.meter,
+			meterProvider: cfg.meterProvider,
 		}
 		if cfg.label != nil {
 			subLabel := fmt.Sprintf("%s_%d", *cfg.label, i)
@@ -116,8 +116,8 @@ func newFSMMultiProcessor1In0OutSync[IO Generic1In0OutSyncProcessorIO[I, In], I,
 		subProcessorInputChs:   subProcessorInputChs,
 	}
 
-	if cfg.meter != nil && cfg.label != nil {
-		if metrics, err := newMetricsRecorder(cfg.meter, *cfg.label); err != nil {
+	if cfg.meterProvider != nil && cfg.label != nil {
+		if metrics, err := newMetricsRecorder(cfg.meterProvider, *cfg.label); err != nil {
 			logger.With("error", err).Warn("Failed to initialize multiprocessor metrics")
 		} else {
 			fsm.metrics = metrics
