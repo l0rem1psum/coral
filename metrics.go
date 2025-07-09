@@ -19,8 +19,8 @@ var (
 type metricsRecorder struct {
 	inputProcessed  metric.Int64Counter
 	itemReleased    metric.Int64Counter
-	processDuration metric.Int64Histogram
-	outputDuration  metric.Int64Histogram
+	processDuration metric.Int64Gauge
+	outputDuration  metric.Int64Gauge
 }
 
 func newMetricsRecorder(mp metric.MeterProvider, label string) (*metricsRecorder, error) {
@@ -46,19 +46,19 @@ func newMetricsRecorder(mp metric.MeterProvider, label string) (*metricsRecorder
 		return nil, err
 	}
 
-	processDuration, err := meter.Int64Histogram(
+	processDuration, err := meter.Int64Gauge(
 		metricsProcessDuration,
 		metric.WithDescription("Time taken to process an input"),
-		metric.WithUnit("μs"),
+		metric.WithUnit("us"),
 	)
 	if err != nil {
 		return nil, err
 	}
 
-	outputDuration, err := meter.Int64Histogram(
+	outputDuration, err := meter.Int64Gauge(
 		metricsOutputDuration,
 		metric.WithDescription("Time taken to send an output"),
-		metric.WithUnit("μs"),
+		metric.WithUnit("us"),
 	)
 	if err != nil {
 		return nil, err
