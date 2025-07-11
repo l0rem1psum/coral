@@ -49,6 +49,9 @@ const (
 	// Multiprocessor-specific warnings
 	logOutputChannelFullDropOldestBatch  = "Output channel full, dropping oldest batch"
 	logOutputChannelFullDropCurrentBatch = "Output channel full, dropping current batch"
+
+	// Skip result misuse warning
+	logSkipResultMisuseWarning = "SkipResult received, possible misues"
 )
 
 // Debug Messages

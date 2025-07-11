@@ -1,6 +1,7 @@
 package processor
 
 import (
+	"errors"
 	"log/slog"
 	"sync"
 
@@ -274,6 +275,9 @@ func (fsm *fsmMInNOutSync[IO, I, O, In, Out]) processBatch(inputBatch []I) {
 	ins := lo.Map(inputBatch, func(i I, _ int) In { return io.AsInput(i) })
 
 	outputs, err := fsm.processor.Process(ins)
+	if errors.Is(err, SkipResult) {
+		return
+	}
 	if err != nil {
 		fsm.logger.With("error", err).Error(logProcessingError)
 		return
