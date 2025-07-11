@@ -1,9 +1,12 @@
 package processor
 
 import (
+	"context"
+	"fmt"
 	"log/slog"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/hashicorp/go-multierror"
 	"github.com/samber/lo"
@@ -44,8 +47,9 @@ type fsmMultiProcessor1In0OutSync[IO Generic1In0OutSyncProcessorIO[I, In], I, In
 	controllableProcessors []Controllable
 	subProcessorFSMs       []*fsm1In0OutSync[IO, I, In]
 
-	config config
-	logger *slog.Logger
+	config  config
+	logger  *slog.Logger
+	metrics *metricsRecorder
 
 	inputsCh <-chan []I
 	closeCh  chan struct{}
@@ -76,7 +80,14 @@ func newFSMMultiProcessor1In0OutSync[IO Generic1In0OutSyncProcessorIO[I, In], I,
 
 	for i, processor := range processors {
 		subProcessorInputChs[i] = make(chan I)
-		subProcessorFSMs[i] = newFSM1In0OutSync[IO](processor, config{}, logger.With("multiproc_index", i), subProcessorInputChs[i])
+		subConfig := config{
+			meterProvider: cfg.meterProvider,
+		}
+		if cfg.label != nil {
+			subLabel := fmt.Sprintf("%s_%d", *cfg.label, i)
+			subConfig.label = &subLabel
+		}
+		subProcessorFSMs[i] = newFSM1In0OutSync[IO](processor, subConfig, logger.With("multiproc_index", i), subProcessorInputChs[i])
 		controllableProcessor, ok := any(processor).(Controllable)
 		if ok {
 			controllableProcessors[i] = controllableProcessor
@@ -103,6 +114,14 @@ func newFSMMultiProcessor1In0OutSync[IO Generic1In0OutSyncProcessorIO[I, In], I,
 		stopAfterInit:          make(chan struct{}),
 		controlReqCh:           make(chan *wrappedRequest),
 		subProcessorInputChs:   subProcessorInputChs,
+	}
+
+	if cfg.meterProvider != nil && cfg.label != nil {
+		if metrics, err := newMetricsRecorder(cfg.meterProvider, *cfg.label); err != nil {
+			logger.With("error", err).Warn("Failed to initialize multiprocessor metrics")
+		} else {
+			fsm.metrics = metrics
+		}
 	}
 
 	fsm.setState(StateCreated)
@@ -312,6 +331,7 @@ func (fsm *fsmMultiProcessor1In0OutSync[IO, I, _, _]) handleInputBatch(inputs []
 	case StatePaused:
 		for _, i := range inputs {
 			io.ReleaseInput(i)
+			fsm.metrics.recordInputReleased(context.Background(), 0)
 		}
 	default:
 		panic("impossible state: " + fsm.getState().String())
@@ -330,10 +350,12 @@ func (fsm *fsmMultiProcessor1In0OutSync[IO, I, _, _]) processBatch(inputs []I) {
 		fsm.logger.With("input_length", len(inputs), "processor_length", len(fsm.processors)).Warn(logInputLengthMismatch)
 		for _, i := range inputs {
 			io.ReleaseInput(i)
+			fsm.metrics.recordInputReleased(context.Background(), 0)
 		}
 		return
 	}
 
+	start := time.Now()
 	var wg sync.WaitGroup
 	wg.Add(len(inputs))
 
@@ -344,6 +366,8 @@ func (fsm *fsmMultiProcessor1In0OutSync[IO, I, _, _]) processBatch(inputs []I) {
 		}(j, input)
 	}
 	wg.Wait()
+	fsm.metrics.recordProcessDuration(context.Background(), time.Since(start))
+	fsm.metrics.recordInputProcessedSuccess(context.Background(), 0)
 }
 
 func (fsm *fsmMultiProcessor1In0OutSync[_, _, _, P]) handleControlRequest(ctlReq *wrappedRequest) {

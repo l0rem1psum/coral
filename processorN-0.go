@@ -1,7 +1,9 @@
 package processor
 
 import (
+	"context"
 	"log/slog"
+	"time"
 )
 
 // GenericNIn0OutAsyncProcessor[In] consumes data from multiple input streams without output.
@@ -56,8 +58,9 @@ type fsmNIn0OutAsync[IO GenericNIn0OutAsyncProcessorIO[I, In], I, In any] struct
 	processor             GenericNIn0OutAsyncProcessor[In]
 	controllableProcessor Controllable
 
-	config config
-	logger *slog.Logger
+	config  config
+	logger  *slog.Logger
+	metrics *metricsRecorder
 
 	inputChs      []<-chan I
 	fannedInputCh <-chan fannedInResult[I]
@@ -94,6 +97,14 @@ func newFSMNIn0OutAsync[
 		startDoneCh:   make(chan struct{}),
 		stopAfterInit: make(chan struct{}),
 		controlReqCh:  make(chan *wrappedRequest),
+	}
+
+	if config.meterProvider != nil && config.label != nil {
+		if metrics, err := newMetricsRecorder(config.meterProvider, *config.label); err != nil {
+			logger.With("error", err).Warn("Failed to initialize processor metrics")
+		} else {
+			fsm.metrics = metrics
+		}
 	}
 
 	if controllableProcessor, ok := processor.(Controllable); ok {
@@ -249,6 +260,7 @@ func (fsm *fsmNIn0OutAsync[IO, I, _]) handleInput(input fannedInResult[I]) {
 		fsm.processInput(input)
 	case StatePaused:
 		io.ReleaseInput(input.t)
+		fsm.metrics.recordInputReleased(context.Background(), input.index)
 	default:
 		panic("impossible state: " + fsm.getState().String())
 	}
@@ -258,9 +270,15 @@ func (fsm *fsmNIn0OutAsync[IO, I, _]) processInput(input fannedInResult[I]) {
 	var io IO
 
 	in := io.AsInput(input.t)
+
+	start := time.Now()
 	if err := fsm.processor.Process(input.index, in); err != nil {
 		fsm.logger.With("error", err).Error(logProcessingError)
+		fsm.metrics.recordInputProcessedFailure(context.Background(), 0)
+		return
 	}
+	fsm.metrics.recordProcessDuration(context.Background(), time.Since(start))
+	fsm.metrics.recordInputProcessedSuccess(context.Background(), 0)
 }
 
 func (fsm *fsmNIn0OutAsync[_, _, _]) handleControlRequest(ctlReq *wrappedRequest) {
