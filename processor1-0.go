@@ -1,7 +1,9 @@
 package processor
 
 import (
+	"context"
 	"log/slog"
+	"time"
 )
 
 // Generic1In0OutSyncProcessor[In] consumes data without producing output.
@@ -56,8 +58,9 @@ type fsm1In0OutSync[IO Generic1In0OutSyncProcessorIO[I, In], I, In any] struct {
 	processor             Generic1In0OutSyncProcessor[In]
 	controllableProcessor Controllable
 
-	config config
-	logger *slog.Logger
+	config  config
+	logger  *slog.Logger
+	metrics *metricsRecorder
 
 	inputCh       <-chan I
 	closeCh       chan struct{}
@@ -93,6 +96,14 @@ func newFSM1In0OutSync[
 		startDoneCh:   make(chan struct{}),
 		stopAfterInit: make(chan struct{}),
 		controlReqCh:  make(chan *wrappedRequest),
+	}
+
+	if config.meterProvider != nil && config.label != nil {
+		if metrics, err := newMetricsRecorder(config.meterProvider, *config.label); err != nil {
+			logger.With("error", err).Warn("Failed to initialize processor metrics")
+		} else {
+			fsm.metrics = metrics
+		}
 	}
 
 	if controllableProcessor, ok := processor.(Controllable); ok {
@@ -241,6 +252,7 @@ func (fsm *fsm1In0OutSync[IO, I, _]) handleInput(i I) {
 		fsm.processInput(i)
 	case StatePaused:
 		io.ReleaseInput(i)
+		fsm.metrics.recordInputReleased(context.Background(), 0)
 	default:
 		panic("impossible state: " + fsm.getState().String())
 	}
@@ -250,9 +262,15 @@ func (fsm *fsm1In0OutSync[IO, I, _]) processInput(i I) {
 	var io IO
 
 	in := io.AsInput(i)
+
+	start := time.Now()
 	if err := fsm.processor.Process(in); err != nil {
 		fsm.logger.With("error", err).Error(logProcessingError)
+		fsm.metrics.recordInputProcessedFailure(context.Background(), 0)
+		return
 	}
+	fsm.metrics.recordProcessDuration(context.Background(), time.Since(start))
+	fsm.metrics.recordInputProcessedSuccess(context.Background(), 0)
 }
 
 func (fsm *fsm1In0OutSync[_, _, _]) handleControlRequest(ctlReq *wrappedRequest) {
