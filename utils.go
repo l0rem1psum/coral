@@ -2,6 +2,8 @@ package processor
 
 import (
 	"sync"
+
+	"github.com/samber/lo"
 )
 
 func roundRobinFanIn[T any](channelBufferCap int, upstreams ...<-chan T) <-chan fannedInResult[T] {
@@ -65,4 +67,8 @@ func closeMultipleChans[T any](chs ...chan T) {
 	for _, ch := range chs {
 		close(ch)
 	}
+}
+
+func bidirectionalChanSliceToDirectional[T any](a []chan T) []<-chan T {
+	return lo.Map(a, func(ch chan T, _ int) <-chan T { return ch })
 }
