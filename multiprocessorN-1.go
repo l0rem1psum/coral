@@ -79,7 +79,7 @@ func (io wrappedGenericNIn1OutSyncProcessorIO[IO, I, _, In, _]) AsInput(i I) In 
 
 func (io wrappedGenericNIn1OutSyncProcessorIO[IO, I, O, _, Out]) FromOutput(i I, out wrappedGenericNIn1OutSyncProcessorOutput[Out]) wrappedGenericNIn1OutSyncProcessorOutput[O] {
 	var wrappedIO IO
-	return wrappedGenericNIn1OutSyncProcessorOutput[O]{o: wrappedIO.FromOutput(i, out.o), err: nil}
+	return wrappedGenericNIn1OutSyncProcessorOutput[O]{o: wrappedIO.FromOutput(i, out.o), err: out.err}
 }
 
 func (io wrappedGenericNIn1OutSyncProcessorIO[IO, I, _, _, _]) ReleaseInput(i I) {
