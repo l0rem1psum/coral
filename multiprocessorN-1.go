@@ -192,8 +192,7 @@ func newFSMMultiProcessorNIn1OutSync[IO GenericNIn1OutSyncProcessorIO[I, O, In, 
 			subConfig.label = &subLabel
 		}
 
-		subProcessorFSMs[i] = newFSMNIn1OutSync[wrappedGenericNIn1OutSyncProcessorIO[IO, I, O, In, Out],
-			I, wrappedGenericNIn1OutSyncProcessorOutput[O], In, wrappedGenericNIn1OutSyncProcessorOutput[Out]](processor, subConfig, logger.With("multiproc_index", i), bidirectionalChanSliceToDirectional(subProcessorInputChss[i]))
+		subProcessorFSMs[i] = newFSMNIn1OutSync[wrappedGenericNIn1OutSyncProcessorIO[IO, I, O, In, Out]](processor, subConfig, logger.With("multiproc_index", i), bidirectionalChanSliceToDirectional(subProcessorInputChss[i]))
 		controllableProcessor, ok := any(processor).(Controllable)
 		if ok {
 			controllableProcessors[i] = controllableProcessor
