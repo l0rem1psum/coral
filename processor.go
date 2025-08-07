@@ -18,6 +18,11 @@ var (
 	ErrMultipleStop        = errors.New("multiple stop")
 )
 
+// SkipResult is a sentinel error that signals a processor should skip output generation
+// for the current input. Effective for synchronous processors; async processors will
+// log a warning as it doesn't affect their separate Output() channels.
+var SkipResult = errors.New("skip result")
+
 type config struct {
 	label              *string
 	logger             *slog.Logger

@@ -87,6 +87,21 @@ func (m *metricsRecorder) recordInputProcessedSuccess(ctx context.Context, proce
 	)
 }
 
+func (m *metricsRecorder) revertInputProcessedSuccess(ctx context.Context, processIdx int) {
+	if m == nil {
+		return
+	}
+
+	m.inputProcessed.Add(
+		ctx,
+		-1,
+		metric.WithAttributes(
+			attribute.String("result", "success"),
+			attribute.String("process_idx", fmt.Sprintf("%d", processIdx)),
+		),
+	)
+}
+
 func (m *metricsRecorder) recordInputProcessedFailure(ctx context.Context, processIdx int) {
 	if m == nil {
 		return
