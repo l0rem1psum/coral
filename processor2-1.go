@@ -2,6 +2,7 @@ package processor
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"time"
 )
@@ -312,7 +313,10 @@ func (fsm *fsm2In1OutAsync[IO, I1, _, _, _, _, _]) processInput1(input I1) {
 	in := io.AsInput1(input)
 
 	start := time.Now()
-	if err := fsm.processor.Process1(in); err != nil {
+	if err := fsm.processor.Process1(in); errors.Is(err, SkipResult) {
+		fsm.logger.Warn(logSkipResultMisuseWarning)
+		return
+	} else if err != nil {
 		fsm.logger.With("error", err, "input_index", 0).Error(logProcessingError)
 		fsm.metrics.recordInputProcessedFailure(context.Background(), 0)
 		return
@@ -327,7 +331,10 @@ func (fsm *fsm2In1OutAsync[IO, _, I2, _, _, _, _]) processInput2(input I2) {
 	in := io.AsInput2(input)
 
 	start := time.Now()
-	if err := fsm.processor.Process2(in); err != nil {
+	if err := fsm.processor.Process2(in); errors.Is(err, SkipResult) {
+		fsm.logger.Warn(logSkipResultMisuseWarning)
+		return
+	} else if err != nil {
 		fsm.logger.With("error", err, "input_index", 1).Error(logProcessingError)
 		fsm.metrics.recordInputProcessedFailure(context.Background(), 1)
 		return

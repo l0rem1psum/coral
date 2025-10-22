@@ -2,6 +2,7 @@ package processor
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"sync"
 	"time"
@@ -287,6 +288,9 @@ func (fsm *fsmMInNOutSync[IO, I, O, In, Out]) processBatch(inputBatch []I) {
 
 	start := time.Now()
 	outputs, err := fsm.processor.Process(ins)
+	if errors.Is(err, SkipResult) {
+		return
+	}
 	if err != nil {
 		fsm.logger.With("error", err).Error(logProcessingError)
 		fsm.metrics.recordInputProcessedFailure(context.Background(), 0)

@@ -2,6 +2,7 @@ package processor
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -78,7 +79,7 @@ func (io wrappedGenericNIn1OutSyncProcessorIO[IO, I, _, In, _]) AsInput(i I) In 
 
 func (io wrappedGenericNIn1OutSyncProcessorIO[IO, I, O, _, Out]) FromOutput(i I, out wrappedGenericNIn1OutSyncProcessorOutput[Out]) wrappedGenericNIn1OutSyncProcessorOutput[O] {
 	var wrappedIO IO
-	return wrappedGenericNIn1OutSyncProcessorOutput[O]{o: wrappedIO.FromOutput(i, out.o), err: nil}
+	return wrappedGenericNIn1OutSyncProcessorOutput[O]{o: wrappedIO.FromOutput(i, out.o), err: out.err}
 }
 
 func (io wrappedGenericNIn1OutSyncProcessorIO[IO, I, _, _, _]) ReleaseInput(i I) {
@@ -499,9 +500,33 @@ func (fsm *fsmMultiProcessorNIn1OutSync[IO, I, O, _, _, _]) processBatch(inputSl
 func (fsm *fsmMultiProcessorNIn1OutSync[IO, _, O, _, _, _]) handleOutputBatch(outputs []wrappedGenericNIn1OutSyncProcessorOutput[O]) {
 	var io IO
 
+	allSkip := true
+	for _, output := range outputs {
+		if !errors.Is(output.err, SkipResult) {
+			allSkip = false
+		}
+	}
+	if allSkip {
+		return
+	}
+
 	unwrappedOutputs := make([]O, len(outputs))
+	allErrors := true
 	for i, output := range outputs {
 		unwrappedOutputs[i] = output.o
+		if output.err != nil {
+			if errors.Is(output.err, SkipResult) {
+				continue
+			}
+			fsm.subProcessorFSMs[i].logger.With("error", output.err).Error(logProcessingError)
+			fsm.subProcessorFSMs[i].metrics.revertInputProcessedSuccess(context.Background(), 0)
+			fsm.subProcessorFSMs[i].metrics.recordInputProcessedFailure(context.Background(), 0)
+		} else {
+			allErrors = false
+		}
+	}
+	if allErrors {
+		return
 	}
 
 	start := time.Now()
