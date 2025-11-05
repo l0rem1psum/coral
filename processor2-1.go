@@ -61,6 +61,16 @@ func InitializeGeneric2In1OutAsyncProcessor[IO Generic2In1OutAsyncProcessorIO[I1
 		logger = logger.With("label", *config.label)
 	}
 
+	if config.hooks == nil {
+		config.hooks = noopHooks
+	}
+	if config.hooks.BeforeProcessing == nil {
+		config.hooks.BeforeProcessing = noopHooksBeforeProcessing
+	}
+	if config.hooks.AfterProcessing == nil {
+		config.hooks.AfterProcessing = noopHooksAfterProcessing
+	}
+
 	return func(input1 <-chan I1, input2 <-chan I2) (*Controller, chan O, error) {
 		return newFSM2In1OutAsync[IO](processor, config, logger, input1, input2).start()
 	}
@@ -313,6 +323,7 @@ func (fsm *fsm2In1OutAsync[IO, I1, _, _, _, _, _]) processInput1(input I1) {
 	in := io.AsInput1(input)
 
 	start := time.Now()
+	fsm.config.hooks.BeforeProcessing(*fsm.config.label, 0)
 	if err := fsm.processor.Process1(in); errors.Is(err, SkipResult) {
 		fsm.logger.Warn(logSkipResultMisuseWarning)
 		return
@@ -331,6 +342,7 @@ func (fsm *fsm2In1OutAsync[IO, _, I2, _, _, _, _]) processInput2(input I2) {
 	in := io.AsInput2(input)
 
 	start := time.Now()
+	fsm.config.hooks.BeforeProcessing(*fsm.config.label, 1)
 	if err := fsm.processor.Process2(in); errors.Is(err, SkipResult) {
 		fsm.logger.Warn(logSkipResultMisuseWarning)
 		return

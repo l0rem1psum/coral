@@ -53,6 +53,16 @@ func InitializeGenericNIn1OutSyncProcessor[IO GenericNIn1OutSyncProcessorIO[I, O
 		logger = logger.With("label", *config.label)
 	}
 
+	if config.hooks == nil {
+		config.hooks = noopHooks
+	}
+	if config.hooks.BeforeProcessing == nil {
+		config.hooks.BeforeProcessing = noopHooksBeforeProcessing
+	}
+	if config.hooks.AfterProcessing == nil {
+		config.hooks.AfterProcessing = noopHooksAfterProcessing
+	}
+
 	return func(inputs []<-chan I) (*Controller, chan O, error) {
 		return newFSMNIn1OutSync[IO](processor, config, logger, inputs).start()
 	}
@@ -282,7 +292,9 @@ func (fsm *fsmNIn1OutSync[IO, I, _, _, _]) processInput(input fannedInResult[I])
 	in := io.AsInput(input.t)
 
 	start := time.Now()
+	fsm.config.hooks.BeforeProcessing(*fsm.config.label, 0)
 	out, err := fsm.processor.Process(input.index, in)
+	fsm.config.hooks.AfterProcessing(*fsm.config.label, 0)
 	if errors.Is(err, SkipResult) {
 		return
 	}
@@ -420,6 +432,16 @@ func InitializeGenericNIn1OutAsyncProcessor[IO GenericNIn1OutAsyncProcessorIO[I,
 
 	if config.label != nil {
 		logger = logger.With("label", *config.label)
+	}
+
+	if config.hooks == nil {
+		config.hooks = noopHooks
+	}
+	if config.hooks.BeforeProcessing == nil {
+		config.hooks.BeforeProcessing = noopHooksBeforeProcessing
+	}
+	if config.hooks.AfterProcessing == nil {
+		config.hooks.AfterProcessing = noopHooksAfterProcessing
 	}
 
 	return func(inputs []<-chan I) (*Controller, chan O, error) {
@@ -659,6 +681,7 @@ func (fsm *fsmNIn1OutAsync[IO, I, _, _, _]) processInput(input fannedInResult[I]
 	in := io.AsInput(input.t)
 
 	start := time.Now()
+	fsm.config.hooks.BeforeProcessing(*fsm.config.label, 0)
 	if err := fsm.processor.Process(input.index, in); errors.Is(err, SkipResult) {
 		fsm.logger.Warn(logSkipResultMisuseWarning)
 		return

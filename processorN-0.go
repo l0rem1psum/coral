@@ -48,6 +48,16 @@ func InitializeGenericNIn0OutAsyncProcessor[IO GenericNIn0OutAsyncProcessorIO[I,
 		logger = logger.With("label", *config.label)
 	}
 
+	if config.hooks == nil {
+		config.hooks = noopHooks
+	}
+	if config.hooks.BeforeProcessing == nil {
+		config.hooks.BeforeProcessing = noopHooksBeforeProcessing
+	}
+	if config.hooks.AfterProcessing == nil {
+		config.hooks.AfterProcessing = noopHooksAfterProcessing
+	}
+
 	return func(inputs []<-chan I) (*Controller, error) {
 		return newFSMNIn0OutAsync[IO](processor, config, logger, inputs).start()
 	}
@@ -273,6 +283,7 @@ func (fsm *fsmNIn0OutAsync[IO, I, _]) processInput(input fannedInResult[I]) {
 	in := io.AsInput(input.t)
 
 	start := time.Now()
+	fsm.config.hooks.BeforeProcessing(*fsm.config.label, 0)
 	if err := fsm.processor.Process(input.index, in); errors.Is(err, SkipResult) {
 		fsm.logger.Warn(logSkipResultMisuseWarning)
 		return
