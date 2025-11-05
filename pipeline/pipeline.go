@@ -399,6 +399,7 @@ func (ppl *Pipeline) Initialize() error {
 		initializerErr := initializerResults[len(initializerResults)-1]
 		if isType[error](initializerErr.Type()) {
 			if err := errOrNil(initializerErr); err != nil {
+				ppl.logger.With("error", err).With("vertex", vertex).Error("failed to initialize processor, stopping pipeline...")
 				ppl.stopAllControllers()
 				return initializerErr.Interface().(error)
 			}
@@ -407,6 +408,7 @@ func (ppl *Pipeline) Initialize() error {
 			errs := asType[[]error](initializerErr)
 			for _, err := range errs {
 				if err != nil {
+					ppl.logger.With("error", err).With("vertex", vertex).Error("failed to initialize processor, stopping pipeline...")
 					ppl.stopAllControllers()
 					return err
 				}
