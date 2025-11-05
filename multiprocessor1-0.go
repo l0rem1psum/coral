@@ -87,6 +87,17 @@ func newFSMMultiProcessor1In0OutSync[IO Generic1In0OutSyncProcessorIO[I, In], I,
 			subLabel := fmt.Sprintf("%s_%d", *cfg.label, i)
 			subConfig.label = &subLabel
 		}
+
+		if cfg.hooks == nil {
+			subConfig.hooks = noopHooks
+		}
+		if cfg.hooks.BeforeProcessing == nil {
+			subConfig.hooks.BeforeProcessing = noopHooksBeforeProcessing
+		}
+		if cfg.hooks.AfterProcessing == nil {
+			subConfig.hooks.AfterProcessing = noopHooksAfterProcessing
+		}
+
 		subProcessorFSMs[i] = newFSM1In0OutSync[IO](processor, subConfig, logger.With("multiproc_index", i), subProcessorInputChs[i])
 		controllableProcessor, ok := any(processor).(Controllable)
 		if ok {

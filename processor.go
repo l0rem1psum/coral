@@ -30,6 +30,7 @@ type config struct {
 	blockOnOutput      bool
 	useRoundRobinFanIn bool // TODO: warn if set on non-N processor
 	outputChannelSize  int
+	hooks              *ProcessorHooks
 
 	meterProvider metric.MeterProvider
 }
@@ -75,5 +76,32 @@ func WithOutputChannelSize(size int) Option {
 func WithMeterProvider(mp metric.MeterProvider) Option {
 	return func(c *config) {
 		c.meterProvider = mp
+	}
+}
+
+type ProcessorHooks struct {
+	// Called before calling the processor's Process method. Does not apply to
+	// processors without a Process method.
+	//
+	// Process index is provided for processors with multiple Process methods.
+	// If there is only one Process method, the index will always be 0.
+	BeforeProcessing func(processorLabel string, processIdx int)
+
+	// Called after calling the processor's Process method. Only applicable to
+	// synchronous processors.
+	//
+	// Process index is provided for processors with multiple Process methods.
+	AfterProcessing func(processorLabel string, processIdx int)
+}
+
+var (
+	noopHooks                 = &ProcessorHooks{}
+	noopHooksBeforeProcessing = func(processorLabel string, processIdx int) {}
+	noopHooksAfterProcessing  = func(processorLabel string, processIdx int) {}
+)
+
+func WithProcessorHooks(hooks *ProcessorHooks) Option {
+	return func(c *config) {
+		c.hooks = hooks
 	}
 }

@@ -59,6 +59,16 @@ func InitializeGenericMInNOutSyncProcessor[IO GenericMInNOutSyncProcessorIO[I, O
 		logger = logger.With("label", *config.label)
 	}
 
+	if config.hooks == nil {
+		config.hooks = noopHooks
+	}
+	if config.hooks.BeforeProcessing == nil {
+		config.hooks.BeforeProcessing = noopHooksBeforeProcessing
+	}
+	if config.hooks.AfterProcessing == nil {
+		config.hooks.AfterProcessing = noopHooksAfterProcessing
+	}
+
 	return func(input <-chan []I) (*Controller, []chan O, error) {
 		return newFSMMInNOutSync[IO](processor, config, logger, input).start()
 	}
@@ -287,7 +297,9 @@ func (fsm *fsmMInNOutSync[IO, I, O, In, Out]) processBatch(inputBatch []I) {
 	ins := lo.Map(inputBatch, func(i I, _ int) In { return io.AsInput(i) })
 
 	start := time.Now()
+	fsm.config.hooks.BeforeProcessing(*fsm.config.label, 0)
 	outputs, err := fsm.processor.Process(ins)
+	fsm.config.hooks.AfterProcessing(*fsm.config.label, 0)
 	if errors.Is(err, SkipResult) {
 		return
 	}

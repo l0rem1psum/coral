@@ -193,6 +193,16 @@ func newFSMMultiProcessorNIn1OutSync[IO GenericNIn1OutSyncProcessorIO[I, O, In, 
 			subConfig.label = &subLabel
 		}
 
+		if cfg.hooks == nil {
+			subConfig.hooks = noopHooks
+		}
+		if cfg.hooks.BeforeProcessing == nil {
+			subConfig.hooks.BeforeProcessing = noopHooksBeforeProcessing
+		}
+		if cfg.hooks.AfterProcessing == nil {
+			subConfig.hooks.AfterProcessing = noopHooksAfterProcessing
+		}
+
 		subProcessorFSMs[i] = newFSMNIn1OutSync[wrappedGenericNIn1OutSyncProcessorIO[IO, I, O, In, Out]](processor, subConfig, logger.With("multiproc_index", i), bidirectionalChanSliceToDirectional(subProcessorInputChss[i]))
 		controllableProcessor, ok := any(processor).(Controllable)
 		if ok {
