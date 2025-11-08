@@ -18,7 +18,7 @@ type wrappedGenericNIn1OutSyncProcessorOutput[O any] struct {
 	err error
 }
 
-var _ GenericNIn1OutSyncProcessor[any, wrappedGenericNIn1OutSyncProcessorOutput[any]] = (*wrappedGenericNIn1OutSyncProcessor[any, any])(nil)
+var _ GenericNIn1OutSyncProcessor[any, *wrappedGenericNIn1OutSyncProcessorOutput[any]] = (*wrappedGenericNIn1OutSyncProcessor[any, any])(nil)
 
 type wrappedGenericNIn1OutSyncProcessor[In any, Out any] struct {
 	processor GenericNIn1OutSyncProcessor[In, Out]
@@ -32,12 +32,12 @@ func (p *wrappedGenericNIn1OutSyncProcessor[In, Out]) Close() error {
 	return p.processor.Close()
 }
 
-func (p *wrappedGenericNIn1OutSyncProcessor[In, Out]) Process(index int, input In) (wrappedGenericNIn1OutSyncProcessorOutput[Out], error) {
+func (p *wrappedGenericNIn1OutSyncProcessor[In, Out]) Process(index int, input In) (*wrappedGenericNIn1OutSyncProcessorOutput[Out], error) {
 	output, err := p.processor.Process(index, input)
-	return wrappedGenericNIn1OutSyncProcessorOutput[Out]{o: output, err: err}, nil
+	return &wrappedGenericNIn1OutSyncProcessorOutput[Out]{o: output, err: err}, nil
 }
 
-var _ GenericNIn1OutSyncProcessor[any, wrappedGenericNIn1OutSyncProcessorOutput[any]] = (*wrappedControllableGenericNIn1OutSyncProcessor[any, any])(nil)
+var _ GenericNIn1OutSyncProcessor[any, *wrappedGenericNIn1OutSyncProcessorOutput[any]] = (*wrappedControllableGenericNIn1OutSyncProcessor[any, any])(nil)
 
 type wrappedControllableGenericNIn1OutSyncProcessor[In any, Out any] struct {
 	processor GenericNIn1OutSyncProcessor[In, Out]
@@ -51,9 +51,9 @@ func (p *wrappedControllableGenericNIn1OutSyncProcessor[In, Out]) Close() error 
 	return p.processor.Close()
 }
 
-func (p *wrappedControllableGenericNIn1OutSyncProcessor[In, Out]) Process(index int, input In) (wrappedGenericNIn1OutSyncProcessorOutput[Out], error) {
+func (p *wrappedControllableGenericNIn1OutSyncProcessor[In, Out]) Process(index int, input In) (*wrappedGenericNIn1OutSyncProcessorOutput[Out], error) {
 	output, err := p.processor.Process(index, input)
-	return wrappedGenericNIn1OutSyncProcessorOutput[Out]{o: output, err: err}, nil
+	return &wrappedGenericNIn1OutSyncProcessorOutput[Out]{o: output, err: err}, nil
 }
 
 func (p *wrappedControllableGenericNIn1OutSyncProcessor[In, Out]) OnControl(req any) error {
@@ -67,27 +67,27 @@ type wrappedGenericNIn1OutSyncProcessorIO[IO GenericNIn1OutSyncProcessorIO[I, O,
 
 var _ GenericNIn1OutSyncProcessorIO[
 	any,
-	wrappedGenericNIn1OutSyncProcessorOutput[any],
+	*wrappedGenericNIn1OutSyncProcessorOutput[any],
 	any,
-	wrappedGenericNIn1OutSyncProcessorOutput[any],
+	*wrappedGenericNIn1OutSyncProcessorOutput[any],
 ] = (*wrappedGenericNIn1OutSyncProcessorIO[GenericNIn1OutSyncProcessorIO[any, any, any, any], any, any, any, any])(nil)
 
-func (io wrappedGenericNIn1OutSyncProcessorIO[IO, I, _, In, _]) AsInput(i I) In {
+func (io *wrappedGenericNIn1OutSyncProcessorIO[IO, I, _, In, _]) AsInput(i I) In {
 	var wrappedIO IO
 	return wrappedIO.AsInput(i)
 }
 
-func (io wrappedGenericNIn1OutSyncProcessorIO[IO, I, O, _, Out]) FromOutput(i I, out wrappedGenericNIn1OutSyncProcessorOutput[Out]) wrappedGenericNIn1OutSyncProcessorOutput[O] {
+func (io *wrappedGenericNIn1OutSyncProcessorIO[IO, I, O, _, Out]) FromOutput(i I, out *wrappedGenericNIn1OutSyncProcessorOutput[Out]) *wrappedGenericNIn1OutSyncProcessorOutput[O] {
 	var wrappedIO IO
-	return wrappedGenericNIn1OutSyncProcessorOutput[O]{o: wrappedIO.FromOutput(i, out.o), err: out.err}
+	return &wrappedGenericNIn1OutSyncProcessorOutput[O]{o: wrappedIO.FromOutput(i, out.o), err: out.err}
 }
 
-func (io wrappedGenericNIn1OutSyncProcessorIO[IO, I, _, _, _]) ReleaseInput(i I) {
+func (io *wrappedGenericNIn1OutSyncProcessorIO[IO, I, _, _, _]) ReleaseInput(i I) {
 	var wrappedIO IO
 	wrappedIO.ReleaseInput(i)
 }
 
-func (io wrappedGenericNIn1OutSyncProcessorIO[IO, _, O, _, _]) ReleaseOutput(o wrappedGenericNIn1OutSyncProcessorOutput[O]) {
+func (io *wrappedGenericNIn1OutSyncProcessorIO[IO, _, O, _, _]) ReleaseOutput(o *wrappedGenericNIn1OutSyncProcessorOutput[O]) {
 	var wrappedIO IO
 	wrappedIO.ReleaseOutput(o.o)
 }
@@ -117,7 +117,7 @@ func InitializeGenericNIn1OutSyncMultiProcessor[IO GenericNIn1OutSyncProcessorIO
 		logger = logger.With("label", *config.label)
 	}
 
-	wrappedProcessors := make([]GenericNIn1OutSyncProcessor[In, wrappedGenericNIn1OutSyncProcessorOutput[Out]], len(processors))
+	wrappedProcessors := make([]GenericNIn1OutSyncProcessor[In, *wrappedGenericNIn1OutSyncProcessorOutput[Out]], len(processors))
 	for i, processor := range processors {
 		if _, ok := any(processor).(Controllable); ok {
 			wrappedProcessors[i] = &wrappedControllableGenericNIn1OutSyncProcessor[In, Out]{processor: processor}
@@ -131,14 +131,14 @@ func InitializeGenericNIn1OutSyncMultiProcessor[IO GenericNIn1OutSyncProcessorIO
 	}
 }
 
-type fsmMultiProcessorNIn1OutSync[IO GenericNIn1OutSyncProcessorIO[I, O, In, Out], I, O, In, Out any, P GenericNIn1OutSyncProcessor[In, wrappedGenericNIn1OutSyncProcessorOutput[Out]]] struct {
+type fsmMultiProcessorNIn1OutSync[IO GenericNIn1OutSyncProcessorIO[I, O, In, Out], I, O, In, Out any, P GenericNIn1OutSyncProcessor[In, *wrappedGenericNIn1OutSyncProcessorOutput[Out]]] struct {
 	*fsm
 
 	processors             []P
 	controllableProcessors []Controllable
 	subProcessorFSMs       []*fsmNIn1OutSync[
-		wrappedGenericNIn1OutSyncProcessorIO[IO, I, O, In, Out],
-		I, wrappedGenericNIn1OutSyncProcessorOutput[O], In, wrappedGenericNIn1OutSyncProcessorOutput[Out],
+		*wrappedGenericNIn1OutSyncProcessorIO[IO, I, O, In, Out],
+		I, *wrappedGenericNIn1OutSyncProcessorOutput[O], In, *wrappedGenericNIn1OutSyncProcessorOutput[Out],
 	]
 
 	config  config
@@ -162,17 +162,17 @@ type fsmMultiProcessorNIn1OutSync[IO GenericNIn1OutSyncProcessorIO[I, O, In, Out
 	subProcessorInputChss [][]chan I
 
 	subControllers []*Controller
-	subOutputChans []chan wrappedGenericNIn1OutSyncProcessorOutput[O]
+	subOutputChans []chan *wrappedGenericNIn1OutSyncProcessorOutput[O]
 }
 
-func newFSMMultiProcessorNIn1OutSync[IO GenericNIn1OutSyncProcessorIO[I, O, In, Out], I, O, In, Out any, P GenericNIn1OutSyncProcessor[In, wrappedGenericNIn1OutSyncProcessorOutput[Out]]](
+func newFSMMultiProcessorNIn1OutSync[IO GenericNIn1OutSyncProcessorIO[I, O, In, Out], I, O, In, Out any, P GenericNIn1OutSyncProcessor[In, *wrappedGenericNIn1OutSyncProcessorOutput[Out]]](
 	processors []P,
 	cfg config,
 	logger *slog.Logger,
 	inputsChs []<-chan []I,
 ) *fsmMultiProcessorNIn1OutSync[IO, I, O, In, Out, P] {
-	subProcessorFSMs := make([]*fsmNIn1OutSync[wrappedGenericNIn1OutSyncProcessorIO[IO, I, O, In, Out],
-		I, wrappedGenericNIn1OutSyncProcessorOutput[O], In, wrappedGenericNIn1OutSyncProcessorOutput[Out]], len(processors))
+	subProcessorFSMs := make([]*fsmNIn1OutSync[*wrappedGenericNIn1OutSyncProcessorIO[IO, I, O, In, Out],
+		I, *wrappedGenericNIn1OutSyncProcessorOutput[O], In, *wrappedGenericNIn1OutSyncProcessorOutput[Out]], len(processors))
 	subProcessorInputChss := make([][]chan I, len(processors))
 	controllableProcessors := make([]Controllable, len(processors))
 
@@ -193,7 +193,7 @@ func newFSMMultiProcessorNIn1OutSync[IO GenericNIn1OutSyncProcessorIO[I, O, In, 
 			subConfig.label = &subLabel
 		}
 
-		subProcessorFSMs[i] = newFSMNIn1OutSync[wrappedGenericNIn1OutSyncProcessorIO[IO, I, O, In, Out]](processor, subConfig, logger.With("multiproc_index", i), bidirectionalChanSliceToDirectional(subProcessorInputChss[i]))
+		subProcessorFSMs[i] = newFSMNIn1OutSync[*wrappedGenericNIn1OutSyncProcessorIO[IO, I, O, In, Out]](processor, subConfig, logger.With("multiproc_index", i), bidirectionalChanSliceToDirectional(subProcessorInputChss[i]))
 		controllableProcessor, ok := any(processor).(Controllable)
 		if ok {
 			controllableProcessors[i] = controllableProcessor
@@ -322,7 +322,7 @@ func (fsm *fsmMultiProcessorNIn1OutSync[_, _, O, _, _, _]) run() {
 	fsm.transitionTo(StateInitializing)
 
 	subControllers := make([]*Controller, len(fsm.processors))
-	subOutputChans := make([]chan wrappedGenericNIn1OutSyncProcessorOutput[O], len(fsm.processors))
+	subOutputChans := make([]chan *wrappedGenericNIn1OutSyncProcessorOutput[O], len(fsm.processors))
 	initErrs := make([]error, len(fsm.processors))
 
 	var wg sync.WaitGroup
@@ -480,7 +480,7 @@ func (fsm *fsmMultiProcessorNIn1OutSync[IO, I, O, _, _, _]) processBatch(inputSl
 	start := time.Now()
 	var wg sync.WaitGroup
 	wg.Add(len(inputs))
-	outputs := make([]wrappedGenericNIn1OutSyncProcessorOutput[O], len(inputs))
+	outputs := make([]*wrappedGenericNIn1OutSyncProcessorOutput[O], len(inputs))
 
 	for j, input := range inputs {
 		go func(j int, input I) {
@@ -497,7 +497,7 @@ func (fsm *fsmMultiProcessorNIn1OutSync[IO, I, O, _, _, _]) processBatch(inputSl
 	fsm.handleOutputBatch(outputs)
 }
 
-func (fsm *fsmMultiProcessorNIn1OutSync[IO, _, O, _, _, _]) handleOutputBatch(outputs []wrappedGenericNIn1OutSyncProcessorOutput[O]) {
+func (fsm *fsmMultiProcessorNIn1OutSync[IO, _, O, _, _, _]) handleOutputBatch(outputs []*wrappedGenericNIn1OutSyncProcessorOutput[O]) {
 	var io IO
 
 	allSkip := true
